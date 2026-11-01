@@ -369,9 +369,6 @@ details summary { cursor: pointer; font-weight: 800; margin-top: .8rem; }
 .item-form legend { font-weight: 900; font-size: .85rem; padding: 0 .3rem; }
 .icon-pick { display: flex; gap: .8rem; align-items: center; }
 .big-icon { width: 72px !important; height: 72px; font-size: 2.4rem; text-align: center; padding: 0; flex: none; }
-.emoji-grid { display: flex; flex-wrap: wrap; gap: 2px; max-height: 76px; overflow: auto; }
-.emoji-grid button { border: none; background: none; font-size: 1.25rem; cursor: pointer; border-radius: 8px; padding: .1rem .2rem; }
-.emoji-grid button:hover { background: var(--bg2); transform: scale(1.2); }
 .welcome { text-align: center; }
 .welcome-actions { display: flex; flex-direction: column; gap: .6rem; margin-top: 1rem; }
 #toasts { position: fixed; bottom: 16px; right: 16px; display: flex; flex-direction: column; gap: .5rem; z-index: 60; max-width: min(420px, calc(100vw - 32px)); }
@@ -479,3 +476,20 @@ code.copy { user-select: all; display: inline-block; margin-top: .2rem; }
 .sync-box { margin: 0 0 1rem; border-color: var(--kelp); border-style: solid; }
 .sync-box p { margin: .4rem 0; }
 .cloud-adv { margin: .4rem 0 .2rem; font-size: 1rem; }
+
+/* ---------- Emoji picker ---------- */
+.icon-pick { align-items: flex-start; }
+.icon-col { display: flex; flex-direction: column; align-items: center; gap: .3rem; width: 96px; flex: none; text-align: center; }
+.icon-col small { font-size: .68rem; line-height: 1.2; }
+.emoji-picker { flex: 1; min-width: 0; border: 2px solid var(--line); border-radius: 14px; padding: .5rem; background: var(--bg); }
+.ep-search { padding: .35rem .7rem; border-radius: 999px; font-size: .85rem; margin-bottom: .4rem; }
+.ep-tabs { display: flex; gap: .25rem; overflow-x: auto; padding-bottom: .35rem; scrollbar-width: thin; }
+.ep-tab { flex: none; border: 1.5px solid var(--line); background: var(--card); border-radius: 999px; padding: .15rem .55rem; font-size: .74rem; font-weight: 800; cursor: pointer; white-space: nowrap; }
+.ep-tab.on { background: var(--ocean); color: #fff; border-color: var(--ink); }
+.ep-grid { display: flex; flex-wrap: wrap; gap: 2px; max-height: 118px; overflow: auto; padding-top: .2rem; }
+.ep-grid button { border: none; background: none; font-size: 1.4rem; cursor: pointer; border-radius: 8px; padding: .12rem .22rem; line-height: 1.2; }
+.ep-grid button:hover { background: var(--card); transform: scale(1.2); }
+@media (max-width: 560px) { .icon-pick { flex-direction: column; align-items: stretch; } .icon-col { flex-direction: row; width: auto; } }
+.item-form > * { min-width: 0; }
+.modal { overflow-x: hidden; }
+.ep-top { min-width: 0; }

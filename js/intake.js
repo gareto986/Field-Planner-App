@@ -1,10 +1,10 @@
 // "Add gear with AI": describe items in plain words; the AI drafts inventory
 // records and asks short follow-up questions when details that matter for
 // planning (quantity, weight, size, capacity) are missing or ambiguous.
-import { state, settings, CATEGORIES, ACTIVITIES, ENVIRONMENTS, catInfo } from './store.js?v=202611012205';
-import { chat, aiReady, aiConfig, isLocal } from './ai.js?v=202611012205';
-import { $, esc, num, round, openModal, toast, splitList, weightToDisplay, weightFromDisplay, weightUnit } from './utils.js?v=202611012205';
-import { loadedModel } from './local-ai.js?v=202611012205';
+import { state, settings, CATEGORIES, ACTIVITIES, ENVIRONMENTS, catInfo } from './store.js?v=202611012211';
+import { chat, aiReady, aiConfig, isLocal } from './ai.js?v=202611012211';
+import { $, esc, num, round, openModal, toast, splitList, weightToDisplay, weightFromDisplay, weightUnit } from './utils.js?v=202611012211';
+import { loadedModel } from './local-ai.js?v=202611012211';
 
 const SYSTEM = () => `You are FieldPack's inventory assistant for an archaeology and field-research team. Turn the user's plain-language description of gear into inventory records for a trip-planning database.
 

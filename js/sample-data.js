@@ -67,7 +67,7 @@ export const SAMPLE_ITEMS = [
 
   // Tools & electronics
   I('TL-001', 'Multitool', 'Tools', '🛠️', 0.25, [11, 4, 2], { qty: 2, uses: ['repair', 'survey', 'sampling'] }),
-  I('TL-002', 'Folding Shovel', 'Tools', '🪏', 0.6, [45, 15, 5], { qty: 2, uses: ['sampling', 'basecamp', 'vehicle', 'excavation', 'testing'] }),
+  I('TL-002', 'Folding Shovel', 'Tools', '🔧', 0.6, [45, 15, 5], { qty: 2, uses: ['sampling', 'basecamp', 'vehicle', 'excavation', 'testing'] }),
   I('TL-003', 'Static Rope 30m', 'Tools', '🪢', 1.0, [30, 30, 10], { qty: 1, uses: ['rescue', 'mountain', 'boat'], env: ['mountain', 'island', 'coastal'] }),
   I('TL-004', 'Duct Tape Roll', 'Tools', '🩹', 0.15, [10, 10, 5], { qty: 2, uses: ['repair'] }),
   I('EL-001', 'Power Bank 20,000mAh', 'Electronics', '🔋', 0.36, [15, 7, 2.5], { qty: 3, uses: ['electronics', 'overnight', 'survey'] }),

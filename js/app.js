@@ -1,14 +1,15 @@
 import { state, settings, commit, persist, saveSettings, restore, subscribe, CATEGORIES, catInfo, ENVIRONMENTS, ACTIVITIES, ACTIVITY_GROUPS,
-  TRANSPORT, emptyPlan, defaultRequest, itemById, nextItemId } from './store.js?v=202611012205';
+  TRANSPORT, emptyPlan, defaultRequest, itemById, nextItemId } from './store.js?v=202611012211';
 import { $, $$, esc, uid, num, round, fmtWeight, fmtVolume, weightToDisplay, weightFromDisplay, weightUnit, splitList,
-  toast, openModal, confirmDialog, markdown, debounce } from './utils.js?v=202611012205';
-import { autoPack, binPack, planStats, packingSummary, itemVolume, isContainer, isWorn, limitsFor, suggestedQty, relevance } from './planner.js?v=202611012205';
-import * as excel from './excel.js?v=202611012205';
-import * as cloud from './onedrive.js?v=202611012205';
-import { LOCAL_MODELS, hasWebGPU, gpuStatus, isModelCached, loadLocalModel, onLocalProgress, loadedModel } from './local-ai.js?v=202611012205';
-import { PROVIDERS, fetchFreeModels, fetchOvhModels, servedModel, isLocal, aiConfig, aiReady, chat, testConnection, SYSTEM_PROMPT, buildTripBrief, parseSuggestion, stripJson, iconFor } from './ai.js?v=202611012205';
-import { SAMPLE_ITEMS } from './sample-data.js?v=202611012205';
-import { openIntake } from './intake.js?v=202611012205';
+  toast, openModal, confirmDialog, markdown, debounce } from './utils.js?v=202611012211';
+import { autoPack, binPack, planStats, packingSummary, itemVolume, isContainer, isWorn, limitsFor, suggestedQty, relevance } from './planner.js?v=202611012211';
+import * as excel from './excel.js?v=202611012211';
+import * as cloud from './onedrive.js?v=202611012211';
+import { LOCAL_MODELS, hasWebGPU, gpuStatus, isModelCached, loadLocalModel, onLocalProgress, loadedModel } from './local-ai.js?v=202611012211';
+import { PROVIDERS, fetchFreeModels, fetchOvhModels, servedModel, isLocal, aiConfig, aiReady, chat, testConnection, SYSTEM_PROMPT, buildTripBrief, parseSuggestion, stripJson, iconFor } from './ai.js?v=202611012211';
+import { SAMPLE_ITEMS } from './sample-data.js?v=202611012211';
+import { pickerHtml, wirePicker, suggestIcon } from './emoji.js?v=202611012211';
+import { openIntake } from './intake.js?v=202611012211';
 
 const U = () => settings.units;
 const W = kg => fmtWeight(kg, U());
@@ -622,7 +623,7 @@ function afterRender() {
     e.preventDefault();
     const f = new FormData(qa);
     const category = f.get('category');
-    upsertItem({ id: nextItemId(category), name: String(f.get('name')).trim(), category, icon: catInfo(category).icon,
+    upsertItem({ id: nextItemId(category), name: String(f.get('name')).trim(), category, icon: suggestIcon(f.get('name'), catInfo(category).icon),
       weightKg: weightFromDisplay(f.get('weight'), U()), qtyOwned: num(f.get('qty'), 1) });
     toast(`Added ${f.get('name')}`, 'ok');
   };
@@ -854,9 +855,6 @@ function upsertItem(item) {
   commit();
 }
 
-const EMOJI = ['🎒', '👜', '📦', '🧳', '🛍️', '🧥', '👕', '👖', '🧦', '🧤', '🥾', '👒', '⛺', '🛌', '🔥', '🍳', '🍲', '🥜', '🍫', '☕', '💧', '🫗', '🚰',
-  '🧭', '🗺️', '⛑️', '📡', '🔦', '🆘', '🧴', '🛠️', '⛏️', '🪢', '🔋', '☀️', '📷', '📓', '🧪', '📏', '📟', '🔭', '🪥', '🧻', '🕶️', '🪓', '🎣', '🧯', '🪫'];
-
 function itemModal(existing, prefill = {}) {
   const it = existing || { id: '', name: '', category: 'Other', icon: '', weightKg: 0, qtyOwned: 1, useCases: [], environments: ['all'], ...prefill };
   const tagPool = [...new Set([...ACTIVITIES, ...(settings.customActivities || []), 'rain', 'cold', 'hot', 'sun', 'emergency', 'navigation', 'electronics', 'repair', 'worn',
@@ -865,8 +863,9 @@ function itemModal(existing, prefill = {}) {
     <h2>${existing ? 'Edit item' : 'New inventory item'}</h2>
     <form id="itemForm" class="item-form">
       <div class="icon-pick">
-        <input name="icon" maxlength="4" value="${esc(it.icon || '')}" class="big-icon" aria-label="Icon">
-        <div class="emoji-grid">${EMOJI.map(e => `<button type="button" data-emoji="${e}">${e}</button>`).join('')}</div>
+        <div class="icon-col"><input name="icon" maxlength="8" value="${esc(it.icon || '')}" class="big-icon" aria-label="Icon">
+          <small class="muted">Pick, search, or paste any emoji</small></div>
+        ${pickerHtml()}
       </div>
       <div class="grid2">
         <label>Name<input name="name" required value="${esc(it.name)}"></label>
@@ -908,8 +907,14 @@ function itemModal(existing, prefill = {}) {
       form.category.onchange = () => { syncContainer(); if (!form.icon.value) form.icon.placeholder = catInfo(form.category.value).icon; };
       syncContainer();
       form.icon.placeholder = catInfo(form.category.value).icon;
+      // Suggest an icon from the name until the user picks one themselves.
+      let iconTouched = !!it.icon;
+      const suggest = () => { if (!iconTouched) form.icon.value = suggestIcon(form.name.value, ''); };
+      form.name.addEventListener('input', suggest);
+      form.icon.addEventListener('input', () => { iconTouched = true; });
+      if (!existing && it.name && !it.icon) suggest();
+      wirePicker(m.querySelector('.emoji-picker'), e => { form.icon.value = e; iconTouched = true; });
       m.addEventListener('click', e => {
-        const em = e.target.closest('[data-emoji]'); if (em) form.icon.value = em.dataset.emoji;
         const t = e.target.closest('[data-addtag]');
         if (t) { const cur = splitList(form.useCases.value); if (!cur.includes(t.dataset.addtag)) form.useCases.value = [...cur, t.dataset.addtag].join(', '); }
         const ev = e.target.closest('[data-envtoggle]');
