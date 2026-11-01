@@ -1,10 +1,12 @@
 // Bring-your-own-AI connector. Calls the provider straight from the browser
 // with the user's own key (stored only in this browser's localStorage).
 import { state, settings, itemById, catInfo } from './store.js';
-import { itemVolume, planStats, packingSummary } from './planner.js';
+import { itemVolume, planStats, packingSummary, relevance } from './planner.js';
 import { round } from './utils.js';
+import { DEFAULT_LOCAL_MODEL, hasWebGPU, localChat } from './local-ai.js';
 
 export const PROVIDERS = {
+  local:     { label: 'Free built-in AI (runs in your browser)', defaultModel: DEFAULT_LOCAL_MODEL, keyHint: 'no key needed', local: true },
   anthropic: { label: 'Anthropic Claude', defaultModel: 'claude-opus-5-5', keyHint: 'sk-ant-…', keyUrl: 'https://console.anthropic.com/settings/keys' },
   openai:    { label: 'OpenAI', defaultModel: 'gpt-4o', keyHint: 'sk-…', keyUrl: 'https://platform.openai.com/api-keys' },
   gemini:    { label: 'Google Gemini', defaultModel: 'gemini-2.5-flash', keyHint: 'AIza…', keyUrl: 'https://aistudio.google.com/apikey' },
@@ -15,7 +17,8 @@ export const aiConfig = () => {
   const a = settings.ai, p = PROVIDERS[a.provider] || PROVIDERS.anthropic;
   return { provider: a.provider, model: a.model || p.defaultModel, apiKey: a.keys?.[a.provider] ?? a.apiKey ?? '', baseUrl: a.baseUrl || p.baseUrl || '' };
 };
-export const aiReady = () => { const c = aiConfig(); return !!(c.apiKey || c.provider === 'compatible'); };
+export const aiReady = () => { const c = aiConfig(); return c.provider === 'local' ? hasWebGPU() : !!(c.apiKey || c.provider === 'compatible'); };
+export const isLocal = () => aiConfig().provider === 'local';
 
 // Claude models that accept output_config.effort + server-side refusal fallbacks.
 const MODERN_CLAUDE = /^claude-(fable-5-1|opus-5-5|opus-5|sonnet-5-5)$/;
@@ -34,6 +37,7 @@ async function postJSON(url, headers, body) {
 /** Send a conversation; returns assistant text. messages: [{role:'user'|'assistant', content}] */
 export async function chat(system, messages) {
   const c = aiConfig();
+  if (c.provider === 'local') return localChat(c.model, system, messages);
   if (c.provider === 'anthropic') {
     const modern = MODERN_CLAUDE.test(c.model);
     const headers = {
@@ -82,9 +86,19 @@ Use kilograms and liters. Be practical and specific. If you mention seasonal wea
 
 const fmtList = a => (Array.isArray(a) ? a : []).join(', ') || '-';
 
-export function buildTripBrief(plan = state.plan) {
+export function buildTripBrief(plan = state.plan, { compact = false } = {}) {
   const r = plan.request, s = planStats(plan);
-  const inv = state.items.map(i => [
+  // Small in-browser models have a short context window, so send only the
+  // relevant part of the inventory: anything on the board, all containers,
+  // and items that match the trip.
+  const used = new Set([...plan.packed.map(p => p.itemId), ...plan.containers.map(c => c.itemId)]);
+  const items = compact
+    ? state.items.filter(i => used.has(i.id) || i.category === 'Container' || relevance(i, r) >= 3).slice(0, 60)
+    : state.items;
+  const inv = items.map(i => compact ? [
+    i.id, i.name, i.category, round(i.weightKg, 2), round(itemVolume(i), 1), i.qtyOwned || 0,
+    i.capacityL ? `holds ${i.capacityL} L / ${i.maxLoadKg || '?'} kg` : '', fmtList(i.useCases),
+  ].join(' | ') : [
     i.id, i.name, i.category, round(i.weightKg, 3), round(itemVolume(i), 2), i.qtyOwned || 0,
     i.perPerson ? 'Y' : '', i.consumable ? `${i.perPersonDay || 0}/person/day` : '',
     i.capacityL || '', i.maxLoadKg || '', fmtList(i.useCases), fmtList(i.environments), (i.notes || '').replace(/\|/g, '/'),
@@ -105,7 +119,7 @@ export function buildTripBrief(plan = state.plan) {
 - Other requirements / notes: ${r.notes || '-'}
 
 ## Inventory (only these items exist, so reference them by ID)
-ID | Name | Category | kg each | L each | Owned | Per person | Consumption | Capacity L | Max load kg | Use cases | Environments | Notes
+${compact ? 'ID | Name | Category | kg each | L each | Owned | Container capacity | Use cases' : 'ID | Name | Category | kg each | L each | Owned | Per person | Consumption | Capacity L | Max load kg | Use cases | Environments | Notes'}
 ${inv}
 
 ## Current draft packing plan

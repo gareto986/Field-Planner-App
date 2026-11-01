@@ -4,7 +4,8 @@ import { $, $$, esc, uid, num, round, fmtWeight, fmtVolume, weightToDisplay, wei
   toast, openModal, confirmDialog, markdown, debounce } from './utils.js';
 import { autoPack, binPack, planStats, packingSummary, itemVolume, isContainer, isWorn, limitsFor, suggestedQty, relevance } from './planner.js';
 import * as excel from './excel.js';
-import { PROVIDERS, aiConfig, aiReady, chat, testConnection, SYSTEM_PROMPT, buildTripBrief, parseSuggestion, stripJson, iconFor } from './ai.js';
+import { LOCAL_MODELS, hasWebGPU, gpuStatus, isModelCached, loadLocalModel, onLocalProgress, loadedModel } from './local-ai.js';
+import { PROVIDERS, isLocal, aiConfig, aiReady, chat, testConnection, SYSTEM_PROMPT, buildTripBrief, parseSuggestion, stripJson, iconFor } from './ai.js';
 import { SAMPLE_ITEMS } from './sample-data.js';
 
 const U = () => settings.units;
@@ -328,16 +329,19 @@ function aiPanel() {
   const ai = state.plan.ai;
   const c = aiConfig();
   if (!aiReady()) return `<div class="card-head"><h3>🤖 AI trip analyst</h3></div>
-    <div class="empty"><div class="big-emoji">🔌</div><p>Connect Claude, OpenAI, Gemini or a local model to get a detailed trip plan, risk check and load optimization.</p>
-    <button class="btn accent" data-action="go-settings">Connect an AI</button></div>`;
+    <div class="empty"><div class="big-emoji">🔌</div>
+    ${isLocal() ? `<p>The free built-in AI needs <b>WebGPU</b>, which this browser doesn't have. Open FieldPack in a recent <b>Chrome or Edge</b>, or connect a cloud AI.</p>`
+      : `<p>Connect Claude, OpenAI, Gemini or a local model to get a detailed trip plan, risk check and load optimization.</p>`}
+    <button class="btn accent" data-action="go-settings">AI settings</button></div>`;
   const msgs = ai.messages.map((m, i) => i === 0 && m.role === 'user'
     ? `<details class="brief"><summary>📨 Trip brief sent to ${esc(PROVIDERS[ai.provider]?.label || ai.provider)}</summary><pre>${esc(m.content)}</pre></details>`
     : `<div class="msg ${m.role}">${m.role === 'assistant' ? markdown(stripJson(m.content)) : esc(m.content)}</div>`).join('');
   const sug = ai.suggestion;
-  return `<div class="card-head"><h3>🤖 AI trip analyst</h3><span class="muted small">${esc(PROVIDERS[c.provider].label.split(' (')[0])} · ${esc(c.model)}</span></div>
+  return `<div class="card-head"><h3>🤖 AI trip analyst</h3><span class="muted small">${isLocal() ? `🏕️ Free built-in · ${esc(LOCAL_MODELS.find(m => m.id === c.model)?.label || c.model)}` : `${esc(PROVIDERS[c.provider].label.split(' (')[0])} · ${esc(c.model)}`}</span></div>
     <button class="btn accent wide" data-action="ai-analyze" ${aiBusy ? 'disabled' : ''}>${ai.messages.length ? '🔄 Re-analyze current plan' : '✨ Analyze this trip'}</button>
     <div class="chat">${msgs || '<p class="muted small">The AI gets your requirements, full inventory and the current board, then returns a plan you can apply with one click.</p>'}
-      ${aiBusy ? '<div class="msg assistant thinking"><span></span><span></span><span></span> thinking through your trip…</div>' : ''}</div>
+      ${aiBusy ? `<div class="msg assistant thinking"><span></span><span></span><span></span> ${isLocal() ? 'the built-in AI is working (this can take a minute or two)…' : 'thinking through your trip…'}</div>
+        ${isLocal() && loadedModel() !== c.model ? '<div class="ai-progress" id="aiProgress"><div class="minibar"><i style="width:0%;background:var(--teal)"></i></div><span class="small muted">Starting the built-in AI…</span></div>' : ''}` : ''}</div>
     ${sug ? `<div class="suggestion">
       <b>AI packing plan:</b> ${sug.items.length} items in ${sug.containers.length} containers.
       <button class="btn primary wide" data-action="ai-apply">✅ Apply AI plan to board</button>
@@ -426,15 +430,32 @@ function viewHistory() {
 }
 
 // ---------------- Settings ----------------
+function localSettings(c) {
+  const gpu = hasWebGPU();
+  return `<div class="local-ai">
+    <p><b>No key, no account, no cost.</b> An open-weight model runs right here in your browser on your computer's graphics chip. Your trip and inventory never leave this machine.
+    The first run downloads the model once; after that it's cached and even works offline.</p>
+    <p class="small" id="gpuStatus">${gpu ? '⏳ Checking graphics support…' : '⚠️ This browser has no WebGPU. Use a recent Chrome or Edge on a computer with a reasonably modern GPU.'}</p>
+    <div class="model-pick">${LOCAL_MODELS.map(m => `<label class="model-opt ${c.model === m.id ? 'on' : ''}">
+      <input type="radio" name="localModel" value="${esc(m.id)}" ${c.model === m.id ? 'checked' : ''}>
+      <span><b>${esc(m.label)}</b> <small class="muted">${esc(m.size)} · ${esc(m.vram)}</small><br><small>${esc(m.note)}</small>
+      <small class="cache-flag" data-cache="${esc(m.id)}"></small></span></label>`).join('')}</div>
+    <div class="row wrap"><button class="btn primary" data-action="ai-save">Save</button>
+      <button class="btn" data-action="ai-test" ${gpu ? '' : 'disabled'}>⬇️ Download &amp; test now</button><span id="aiTestOut" class="muted small"></span></div>
+    <div class="ai-progress" id="aiProgress" hidden><div class="minibar"><i style="width:0%;background:var(--teal)"></i></div><span class="small muted"></span></div>
+    <p class="muted small">Small local models are slower and less thorough than big cloud models like Claude. For the deepest analysis, connect a cloud AI; for privacy and zero cost, use this.</p>
+  </div>`;
+}
+
 function viewSettings() {
   const c = aiConfig();
   const p = PROVIDERS[c.provider];
   return `<section class="settings">
     <div class="card">
-      <div class="card-head"><h2>🤖 AI connection</h2><span class="muted">Bring your own AI. Requests go straight from this browser to the provider.</span></div>
+      <div class="card-head"><h2>🤖 AI connection</h2><span class="muted">Use the free built-in AI, or bring your own. Requests never go through any FieldPack server.</span></div>
       <div class="providers">${Object.entries(PROVIDERS).map(([k, v]) => `<button class="tcard ${c.provider === k ? 'on' : ''}" data-provider="${k}">
-        <span>${{ anthropic: '✳️', openai: '⚪', gemini: '💎', compatible: '🦙' }[k]}</span>${esc(v.label)}</button>`).join('')}</div>
-      <div class="grid2">
+        <span>${{ local: '🏕️', anthropic: '✳️', openai: '⚪', gemini: '💎', compatible: '🦙' }[k]}</span>${esc(v.label)}</button>`).join('')}</div>
+      ${c.provider === 'local' ? localSettings(c) : `<div class="grid2">
         <label>Model<input id="aiModel" value="${esc(settings.ai.model)}" placeholder="${esc(p.defaultModel)}"></label>
         <label>API key ${p.keyUrl ? `<a href="${p.keyUrl}" target="_blank" rel="noopener" class="small">get a key ↗</a>` : ''}<input id="aiKey" type="password" autocomplete="off" value="${esc(c.apiKey)}" placeholder="${esc(p.keyHint)}"></label>
         ${c.provider === 'compatible' ? `<label class="span2">Base URL<input id="aiBase" value="${esc(settings.ai.baseUrl)}" placeholder="${esc(p.baseUrl)}"></label>` : ''}
@@ -442,7 +463,7 @@ function viewSettings() {
       <div class="row wrap"><button class="btn primary" data-action="ai-save">Save</button><button class="btn" data-action="ai-test">🔌 Test connection</button><span id="aiTestOut" class="muted small"></span></div>
       <p class="muted small">🔐 Your key is stored only in this browser's local storage, and the Excel file never sees it. Use a key with a spending limit.
       ${c.provider === 'compatible' ? 'For Ollama, start it with <code>OLLAMA_ORIGINS=*</code> so the browser can reach it.' : ''}
-      ${c.provider === 'anthropic' ? 'Claude is called with direct browser access enabled, and refusals fall back automatically on current models.' : ''}</p>
+      ${c.provider === 'anthropic' ? 'Claude is called with direct browser access enabled, and refusals fall back automatically on current models.' : ''}</p>`}
     </div>
     <div class="card">
       <div class="card-head"><h2>📗 Excel database</h2></div>
@@ -513,9 +534,35 @@ function afterRender() {
   $$('[data-trip-status]').forEach(sel => sel.onchange = () => {
     const t = state.trips.find(x => x.id === sel.dataset.tripStatus); t.status = sel.value; commit();
   });
+  $$('input[name=localModel]').forEach(r => r.onchange = () => {
+    settings.ai.model = r.value; saveSettings();
+    $$('.model-opt').forEach(o => o.classList.toggle('on', o.contains(r)));
+  });
+  if ($('.cache-flag')) refreshCacheFlags();
+  if ($('#gpuStatus') && hasWebGPU()) gpuStatus().then(g => {
+    const el = $('#gpuStatus'); if (!el) return;
+    el.textContent = `${g.ok ? '✅' : '⚠️'} ${g.message}`; el.classList.toggle('danger-text', !g.ok);
+  });
   const chatEl = $('.chat');
   if (chatEl && aiBusy) chatEl.scrollTop = chatEl.scrollHeight;
 }
+
+function refreshCacheFlags() {
+  $$('.cache-flag').forEach(async el => {
+    const id = el.dataset.cache;
+    const ok = loadedModel() === id || await isModelCached(id);
+    el.textContent = ok ? ' ✅ downloaded' : '';
+  });
+}
+
+// Live download/load progress for the built-in AI (updates the DOM directly so it doesn't re-render the page).
+onLocalProgress(r => {
+  const el = $('#aiProgress');
+  if (!el) return;
+  el.hidden = false;
+  el.querySelector('i').style.width = `${Math.round((r.progress || 0) * 100)}%`;
+  el.querySelector('span').textContent = r.text || '';
+});
 
 // =====================================================================
 // Actions
@@ -604,10 +651,21 @@ function planFromTrip(t, asNew = false) {
 }
 
 // ---------- AI ----------
+async function confirmLocalDownload(model) {
+  if (loadedModel() === model || await isModelCached(model)) return true;
+  const m = LOCAL_MODELS.find(x => x.id === model) || { label: model, size: 'a large download', vram: '' };
+  return confirmDialog(`The free built-in AI (${m.label}) runs entirely on this computer. The first time, your browser downloads the model (${m.size}${m.vram ? `, needs ${m.vram}` : ''}). After that it's cached and works offline. Download it now?`, 'Download & analyze');
+}
+
 async function aiAnalyze() {
-  if (!aiReady()) { setView('settings'); toast('Connect an AI provider first.', 'warn'); return; }
+  if (!aiReady()) { setView('settings'); toast(isLocal() ? 'The built-in AI needs Chrome or Edge with WebGPU.' : 'Connect an AI provider first.', 'warn'); return; }
   const c = aiConfig();
-  const brief = buildTripBrief();
+  if (isLocal()) {
+    const gpu = await gpuStatus();
+    if (!gpu.ok) { toast(gpu.message, 'bad', 10000); return; }
+    if (!(await confirmLocalDownload(c.model))) return;
+  }
+  const brief = buildTripBrief(undefined, { compact: isLocal() });
   state.plan.ai = { messages: [{ role: 'user', content: brief }], suggestion: null, provider: c.provider, model: c.model };
   await aiRun();
 }
@@ -621,7 +679,7 @@ async function aiRun() {
   aiBusy = true; commit({ dirty: false });
   try {
     const msgs = state.plan.ai.messages.map(m => ({ role: m.role, content: m.content }));
-    if (msgs[0]?.content === '(trip brief from history)') msgs[0].content = buildTripBrief();
+    if (msgs[0]?.content === '(trip brief from history)') msgs[0].content = buildTripBrief(undefined, { compact: isLocal() });
     const reply = await chat(SYSTEM_PROMPT, msgs);
     state.plan.ai.messages.push({ role: 'assistant', content: reply });
     const sug = parseSuggestion(reply);
@@ -913,12 +971,27 @@ function onClick(e) {
     case 'ai-apply': return aiApply();
     case 'new-item': return itemModal(null);
     case 'ai-save': case 'ai-test': {
-      settings.ai.model = $('#aiModel').value.trim();
       settings.ai.keys ||= {};
-      settings.ai.keys[settings.ai.provider] = $('#aiKey').value.trim();
-      if ($('#aiBase')) settings.ai.baseUrl = $('#aiBase').value.trim();
+      if (isLocal()) {
+        settings.ai.model = $('input[name=localModel]:checked')?.value || '';
+      } else {
+        settings.ai.model = $('#aiModel').value.trim();
+        settings.ai.keys[settings.ai.provider] = $('#aiKey').value.trim();
+        if ($('#aiBase')) settings.ai.baseUrl = $('#aiBase').value.trim();
+      }
       saveSettings();
       if (d.action === 'ai-save') return toast('AI settings saved', 'ok');
+      if (isLocal()) {
+        const model = aiConfig().model;
+        gpuStatus().then(g => g.ok ? confirmLocalDownload(model) : (toast(g.message, 'bad', 10000), false)).then(async ok => {
+          if (!ok) return;
+          const out = $('#aiTestOut'); if (out) out.textContent = 'Downloading and loading the model…';
+          const bar = $('#aiProgress'); if (bar) bar.hidden = false;
+          try { await loadLocalModel(model); const o = $('#aiTestOut'); if (o) o.textContent = '✅ Built-in AI is ready'; refreshCacheFlags(); toast('Built-in AI is ready 🏕️', 'ok'); }
+          catch (err) { const o = $('#aiTestOut'); if (o) o.textContent = `❌ ${err.message}`; }
+        });
+        return;
+      }
       const out = $('#aiTestOut'); out.textContent = 'Testing…';
       testConnection().then(r => { out.textContent = `✅ Connected: "${r.trim().slice(0, 40)}"`; })
         .catch(err => { out.textContent = `❌ ${err.message}`; });

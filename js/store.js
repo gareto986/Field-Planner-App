@@ -65,7 +65,7 @@ export const state = {
 export const settings = {
   units: 'metric',
   autosave: true,
-  ai: { provider: 'anthropic', model: '', apiKey: '', baseUrl: '', keys: {} },
+  ai: { provider: 'local', model: '', apiKey: '', baseUrl: '', keys: {} },
 };
 
 const listeners = new Set();

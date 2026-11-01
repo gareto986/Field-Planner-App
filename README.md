@@ -59,10 +59,13 @@ On first launch you can open an existing workbook, create a new one (seeded with
 
 ## AI providers
 
-Configure under **Settings → AI connection**. Keys are kept in the browser's localStorage only and are never written to the workbook.
+Configure under **Settings → AI connection**. Cloud API keys are kept in the browser's localStorage only and are never written to the workbook.
+
+**No AI account? No problem.** FieldPack defaults to a **free built-in AI**: an open-weight model (Qwen 2.5 3B by default; Llama 3.2 3B, Qwen 2.5 1.5B and Qwen 2.5 7B are also offered) that runs **entirely in your browser** on your computer's GPU via [WebLLM](https://github.com/mlc-ai/web-llm). There's no key, no cost, and your trip and inventory never leave the machine. The first analysis asks before downloading the model (≈1–4.5 GB depending on the model); after that it's cached and works offline. It needs a recent **Chrome or Edge** with WebGPU and a reasonably modern GPU. Small local models are slower and less thorough than big cloud models, so for the deepest analysis connect one of these:
 
 | Provider | Default model | Notes |
 |---|---|---|
+| Free built-in (WebLLM) | `Qwen2.5-3B-Instruct-q4f16_1-MLC` | Runs locally in the browser (WebGPU); 8K context, so FieldPack sends a compact brief with only the relevant inventory. |
 | Anthropic Claude | `claude-opus-5-5` | Called directly from the browser (`anthropic-dangerous-direct-browser-access`). On current models, server-side refusal fallback is enabled. |
 | OpenAI | `gpt-4o` | Any chat-completions model. |
 | Google Gemini | `gemini-2.5-flash` | `generateContent` API. |
@@ -82,6 +85,7 @@ js/store.js           state, categories, transport presets, localStorage
 js/planner.js         auto-pack engine, bin packing, plan statistics
 js/excel.js           SheetJS read/write, file handles, column mapping
 js/ai.js              provider adapters, trip-brief prompt, JSON plan parsing
+js/local-ai.js        free in-browser AI (WebLLM / WebGPU)
 js/sample-data.js     seed inventory
 sample/               sample workbook
 ```

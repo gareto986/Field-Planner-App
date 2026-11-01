@@ -52,7 +52,7 @@ input, select, textarea {
 }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--teal); box-shadow: 0 0 0 4px color-mix(in srgb, var(--teal) 22%, transparent); }
 input[type=range] { padding: 0; accent-color: var(--fox); border: none; background: none; }
-input[type=checkbox] { width: auto; accent-color: var(--kelp); }
+input[type=checkbox], input[type=radio] { width: auto; accent-color: var(--kelp); }
 label { display: flex; flex-direction: column; gap: .3rem; font-weight: 800; font-size: .88rem; }
 label.inline { flex-direction: row; align-items: center; gap: .5rem; }
 label.inline select { width: auto; }
@@ -423,3 +423,13 @@ details summary { cursor: pointer; font-weight: 800; margin-top: .8rem; }
 .tag-head span:last-child { margin-left: auto; letter-spacing: .04em; color: var(--muted); }
 .tag-head .hole { width: 12px; height: 12px; border-radius: 50%; background: var(--bg); border: 2px solid var(--line); box-shadow: inset 0 1px 2px rgba(0,0,0,.2); }
 .trip-card { background: linear-gradient(90deg, #b4532a 0 6px, transparent 6px), color-mix(in srgb, var(--sand) 22%, var(--card)); }
+
+/* ---------- Built-in AI ---------- */
+.local-ai p { margin: .4rem 0 .8rem; }
+.model-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: .5rem; margin: .4rem 0 .9rem; }
+.model-opt { flex-direction: row; align-items: flex-start; gap: .6rem; padding: .7rem .8rem; border: 2px solid var(--line); border-radius: 14px; cursor: pointer; font-weight: 600; background: var(--card); }
+.model-opt.on { border-color: var(--ink); background: color-mix(in srgb, var(--seaglass) 35%, var(--card)); box-shadow: 0 3px 0 var(--ink); }
+.model-opt input { margin-top: .25rem; }
+.cache-flag { color: var(--good); font-weight: 900; }
+.ai-progress { margin: .5rem 0; }
+.ai-progress span { display: block; margin-top: .3rem; overflow-wrap: anywhere; }
