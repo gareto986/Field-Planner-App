@@ -25,12 +25,13 @@ The look is inspired by the California Channel Islands: deep channel blues, kelp
 No build step is needed. It is static HTML/JS, but it must be served over http(s), not opened via `file://`:
 
 ```bash
-cd field-trip-planner
+git clone https://github.com/gareto986/Field-Planner-App.git
+cd Field-Planner-App
 python3 -m http.server 8080      # or: npm start
 # open http://localhost:8080 in Chrome or Edge
 ```
 
-On first launch you can open an existing workbook, create a new one (seeded with ~48 sample items), or just explore with sample data. A ready-made workbook is in [`sample/fieldpack-sample-database.xlsx`](sample/fieldpack-sample-database.xlsx).
+On first launch you can open an existing workbook, create a new one (seeded with ~74 sample items), or just explore with sample data. A ready-made workbook is in [`sample/fieldpack-sample-database.xlsx`](sample/fieldpack-sample-database.xlsx).
 
 ## Workbook layout
 
