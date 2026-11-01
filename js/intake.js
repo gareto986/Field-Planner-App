@@ -1,12 +1,13 @@
 // "Add gear with AI": describe items in plain words; the AI drafts inventory
 // records and asks short follow-up questions when details that matter for
 // planning (quantity, weight, size, capacity) are missing or ambiguous.
-import { state, settings, CATEGORIES, ACTIVITIES, ENVIRONMENTS, catInfo } from './store.js?v=202611012244';
-import { chat, chatWithWebSearch, nativeVerifier, PROVIDERS, aiReady, aiConfig, isLocal } from './ai.js?v=202611012244';
-import { $, esc, num, round, openModal, toast, splitList, weightToDisplay, weightFromDisplay, weightUnit, fmtDims, fmtVolSmall, lenToDisplay, lenUnit } from './utils.js?v=202611012244';
-import { gatherEvidence, searchProvider, SEARCH_PROVIDERS } from './websearch.js?v=202611012244';
-import { saveSettings } from './store.js?v=202611012244';
-import { loadedModel } from './local-ai.js?v=202611012244';
+import { state, settings, CATEGORIES, ACTIVITIES, ENVIRONMENTS, catInfo } from './store.js?v=202611012256';
+import { chat, chatWithWebSearch, nativeVerifier, PROVIDERS, aiReady, aiConfig, isLocal } from './ai.js?v=202611012256';
+import { $, esc, num, round, openModal, toast, splitList, weightToDisplay, weightFromDisplay, weightUnit, fmtDims, fmtVolSmall, lenToDisplay, lenUnit } from './utils.js?v=202611012256';
+import { gatherEvidence, searchProvider, SEARCH_PROVIDERS } from './websearch.js?v=202611012256';
+import { CONFIG } from './config.js?v=202611012256';
+import { saveSettings } from './store.js?v=202611012256';
+import { loadedModel } from './local-ai.js?v=202611012256';
 
 const SYSTEM = () => `You are FieldPack's inventory assistant for an archaeology and field-research team. Turn the user's plain-language description of gear into inventory records for a trip-planning database.
 
@@ -104,7 +105,7 @@ export function openIntake({ initial = '', onAdd, goSettings, confirmLocal }) {
       <div class="row wrap verify-bar">
         <button type="button" class="btn small" data-verify ${busy || verifying ? 'disabled' : ''}>🔎 ${draft.some(d => d.check) ? 'Re-check' : 'Check'} specs on the web</button>
         <label class="check small"><input type="checkbox" data-autoverify ${autoVerify() ? 'checked' : ''}> Check automatically after drafting</label>
-        <span class="muted small">${verifying ? `<span class="spin">🔎</span> ${esc(verifying)}` : nativeVerifier() ? `Uses ${nativeVerifier().provider === 'gemini' ? 'Gemini with Google Search' : 'Claude web search'}.` : searchProvider() ? `Free lookup with ${SEARCH_PROVIDERS[searchProvider()].label} search.` : 'Free lookup (add a free search key or Gemini key in Settings for better matches).'}</span>
+        <span class="muted small">${verifying ? `<span class="spin">🔎</span> ${esc(verifying)}` : !nativeVerifier() && CONFIG.specProxyUrl && settings.ai.specMode !== 'free' ? 'Uses Google Search (provided by this site).' : nativeVerifier() ? `Uses ${nativeVerifier().provider === 'gemini' ? 'Gemini with Google Search' : 'Claude web search'}.` : searchProvider() ? `Free lookup with ${SEARCH_PROVIDERS[searchProvider()].label} search.` : 'Free lookup (add a free search key or Gemini key in Settings for better matches).'}</span>
       </div>
       <div class="table-wrap"><table class="draft-table"><thead><tr><th></th><th>Name</th><th>Category</th><th>Weight (${weightUnit(units)})</th><th>Qty</th><th>Size</th><th>Specs</th><th>Tags / notes</th><th></th></tr></thead><tbody>
         ${draft.map((d, i) => `<tr data-row="${i}">
@@ -143,7 +144,22 @@ export function openIntake({ initial = '', onAdd, goSettings, confirmLocal }) {
     try {
       let text, allowed = null;
       const nv = nativeVerifier();
+      const relay = !nv && settings.ai.specMode !== 'free' && (CONFIG.specProxyUrl || '').trim();
       let native = false;
+      if (relay) {
+        verifying = 'Searching Google for manufacturer specs…'; view();
+        try {
+          const res = await fetch(relay, { method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ units, items: targets.map(({ d }) => ({ name: d.name, brand: d.brand, model: d.model, category: d.category, weightKg: d.weightKg, lengthCm: d.lengthCm, widthCm: d.widthCm, heightCm: d.heightCm, capacityL: d.capacityL })) }) });
+          const out = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(out.error || `relay HTTP ${res.status}`);
+          // The relay numbers items 0..n in the order sent; map back to draft rows.
+          const j0 = extractJson(out.text);
+          if (j0?.items) j0.items.forEach(r => { r.index = targets[+r.index]?.i ?? -1; });
+          text = JSON.stringify(j0 || {});
+          native = true;
+        } catch (e) { console.warn('spec relay failed, using free lookup', e); toast(`Google spec search is unavailable right now (${e.message}); trying the free lookup.`, 'warn', 6000); }
+      }
       if (nv) {
         verifying = `Searching the web with ${nv.provider === 'gemini' ? 'Gemini (Google Search)' : 'Claude web search'}…`; view();
         try {

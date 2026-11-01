@@ -6,7 +6,7 @@
 // Pages are read as text via Jina Reader (keyless). When a page has no specs but
 // links to the product (search results, category pages), the best-matching links
 // are followed one hop.
-import { settings } from './store.js?v=202611012244';
+import { settings } from './store.js?v=202611012256';
 
 const TIMEOUT_MS = 20000;
 
@@ -48,13 +48,17 @@ export async function searchWeb(query, count = 5) {
       return (d.data || []).slice(0, count).map(r => ({ url: r.url, title: r.title || r.url, snippet: r.description || '', content: r.content || '' }));
     }
   } catch (e) { console.warn('search key lookup failed, falling back', e); }
+  // Marginalia's shared free key is often busy; after a failure, skip it for 10 minutes.
+  if (Date.now() < marginaliaDownUntil) return [];
   try {
-    const res = await fetchWithTimeout(`https://api.marginalia.nu/public/search/${encodeURIComponent(query)}?count=${count}`, {}, 10000);
-    if (!res.ok) return [];
-    const d = await res.json();
-    return (d.results || []).map(r => ({ url: r.url, title: r.title || r.url, snippet: r.description || '' }));
-  } catch { return []; }
+    const res = await fetchWithTimeout(`https://api.marginalia.nu/public/search/${encodeURIComponent(query)}?count=${count}`, {}, 8000);
+    const d = res.ok ? await res.json().catch(() => null) : null;
+    const results = (d?.results || []).map(r => ({ url: r.url, title: r.title || r.url, snippet: r.description || '' }));
+    if (!results.length) marginaliaDownUntil = Date.now() + 10 * 60 * 1000;
+    return results;
+  } catch { marginaliaDownUntil = Date.now() + 10 * 60 * 1000; return []; }
 }
+let marginaliaDownUntil = 0;
 
 /** Read a web page as text via Jina Reader. Returns {url, title, text} or null. */
 export async function readPage(url) {
@@ -121,11 +125,26 @@ const siteSearchUrls = domain => {
   return [q => `https://www.${d.replace(/^www\./, '')}/search?q=${encodeURIComponent(q)}`, q => `https://www.${d.replace(/^www\./, '')}/?s=${encodeURIComponent(q)}`];
 };
 
-/** Score a page as evidence for an item: needs spec numbers and the product's name/model. */
-function evidenceScore(text, tokens) {
-  const snippet = specSnippets(text, 4000);
-  const nums = (snippet.match(new RegExp(NUM_UNIT_RE, 'gi')) || []).length;
-  return nums ? nums + matchScore(text.slice(0, 6000), tokens) * 2 : 0;
+// A labeled spec line, e.g. "Weight: 6.30 lbs", "Exterior Dimensions 16 x 13 x 6.87 in", "Capacity (L) 65".
+const LABEL_RE = /\b(weight|weighs|mass|dimensions?|measurements?|size|length|width|height|depth|capacity|volume)\b[^\n]{0,60}?\d/i;
+export function labeledSpecLines(text) {
+  return String(text).split(/\n+/).map(l => l.replace(/!\[[^\]]*]\([^)]*\)/g, '').replace(/\[([^\]]*)]\([^)]*\)/g, '$1').trim())
+    .filter(l => l.length < 300 && LABEL_RE.test(l) && NUM_UNIT_RE.test(l));
+}
+
+/** Does this page actually talk about this product (not a menu, cookie banner or a different product)? */
+function isAboutProduct(page, tokens) {
+  const head = `${page.title} ${page.url} ${page.text.slice(0, 3000)}`.toLowerCase();
+  if (tokens.models.length) return tokens.models.some(m => head.includes(m) || page.text.toLowerCase().includes(m));
+  const words = tokens.all.filter(t => t.length > 2);
+  return words.length ? words.filter(t => head.includes(t)).length / words.length >= 0.6 : false;
+}
+
+/** Score a page as evidence: must be about the product AND have labeled spec lines. */
+function evidenceScore(page, tokens) {
+  if (!isAboutProduct(page, tokens)) return 0;
+  const n = labeledSpecLines(page.text).length;
+  return n ? 5 + n + matchScore(`${page.title} ${page.url}`, tokens) : 0;
 }
 
 /**
@@ -144,8 +163,9 @@ export async function gatherEvidence(items, { pagesPerItem = 2, charsPerPage = 2
     };
     const consider = (p, fromSearch = false) => {
       if (!p) return;
-      const score = evidenceScore(p.text, tokens);
+      const score = evidenceScore(p, tokens);
       pages.push({ ...p, score, fromSearch });
+      if (!score) tried.push(`   ↳ no specs for this product on that page`);
     };
 
     // 1) AI-suggested product page
@@ -162,7 +182,7 @@ export async function gatherEvidence(items, { pagesPerItem = 2, charsPerPage = 2
     }));
 
     // 3) manufacturer's own site search, if we still have nothing good
-    if (!pages.some(p => p.score >= 6) && it.domain) {
+    if (!pages.some(p => p.score >= 7) && it.domain) {
       for (const mk of siteSearchUrls(it.domain)) {
         const p = await read(mk(it.model || it.name));
         if (p) { consider(p); break; }
@@ -170,11 +190,12 @@ export async function gatherEvidence(items, { pagesPerItem = 2, charsPerPage = 2
     }
 
     // 4) follow product links one hop from pages without good specs
-    const hop = pages.filter(p => p.score < 6).flatMap(p => productLinks(p, tokens)).filter((u, i, a) => a.indexOf(u) === i && !pages.some(p => p.url === u)).slice(0, 3);
+    const hop = pages.filter(p => p.score < 7).flatMap(p => productLinks(p, tokens)).filter((u, i, a) => a.indexOf(u) === i && !pages.some(p => p.url === u)).slice(0, 3);
     (await Promise.all(hop.map(read))).forEach(p => consider(p));
 
     const sources = pages.filter(p => p.score > 0).sort((a, b) => b.score - a.score).slice(0, pagesPerItem)
-      .map(p => ({ url: p.url, title: p.title, excerpt: specSnippets(p.text, charsPerPage) })).filter(s => s.excerpt.length > 40);
+      .map(p => ({ url: p.url, title: p.title, excerpt: [`Page title: ${p.title}`, ...labeledSpecLines(p.text)].join('\n').slice(0, charsPerPage) }))
+      .filter(s => s.excerpt.length > 40);
     return { index, sources, tried };
   }));
 }

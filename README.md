@@ -104,6 +104,20 @@ Excel Online access uses Microsoft sign-in, which needs a free app registration 
 4. Copy the **Application (client) ID**. Either paste it in **Settings → Excel Online**, or put it in `js/config.js` (`msClientId`) so everyone using your published site can just sign in.
 5. API permissions: Microsoft Graph delegated **User.Read** and **Files.ReadWrite.All** (a work tenant admin may need to grant consent).
 
+## Google-powered spec checks for every user (optional relay)
+
+"Add gear with AI" verifies specs best with Gemini + Google Search. Each user can paste their own free Gemini key (Settings → Spec lookups), but to give **everyone** that quality with **no keys**, run this small free relay that keeps **your** Gemini key secret on Cloudflare (never put an API key into the website code, because anyone could copy it):
+
+1. Create a free account at [dash.cloudflare.com](https://dash.cloudflare.com).
+2. **Workers & Pages → Create → Create Worker** (start from "Hello World"), name it e.g. `fieldpack-specs`, **Deploy**.
+3. **Edit code**, replace everything with the contents of [`worker/spec-proxy.js`](worker/spec-proxy.js), **Deploy**.
+4. Worker **Settings → Variables and Secrets → Add**:
+   - `GEMINI_API_KEY`: type **Secret**, value = your key from [Google AI Studio](https://aistudio.google.com/apikey)
+   - `ALLOWED_ORIGINS`: type **Text**, value = `https://gareto986.github.io` (add `,http://localhost:8080` to also use it locally)
+5. Copy the Worker's URL (e.g. `https://fieldpack-specs.<you>.workers.dev`) into `specProxyUrl` in [`js/config.js`](js/config.js) and push.
+
+The relay only performs spec checks (fixed prompt, max 8 items, short names), only answers your site, and only receives gear names, brands and models, never trip details or site locations. Cloudflare's free plan covers 100,000 requests/day; Gemini's free tier has daily limits (enable billing in Google AI Studio for heavier use).
+
 ## Publish it as a web app (GitHub Pages)
 
 FieldPack is a static site, so GitHub Pages can host it for free with no server:
@@ -135,7 +149,8 @@ js/intake.js          "Add gear with AI" (drafts items, asks follow-up questions
 js/websearch.js       free web lookup for spec verification (Jina Reader + Marginalia)
 js/emoji.js           icon library, search and name-based icon suggestions
 js/onedrive.js        Excel Online: Microsoft sign-in (MSAL) + Microsoft Graph file access
-js/config.js          site-wide settings for a published copy (Microsoft Client ID)
+js/config.js          site-wide settings for a published copy (Microsoft Client ID, spec relay URL)
+worker/spec-proxy.js  optional Cloudflare Worker: Gemini + Google Search spec checks for all users
 auth-redirect.html    Microsoft sign-in redirect page
 js/sample-data.js     seed inventory
 sample/               sample workbook

@@ -1,17 +1,18 @@
 import { state, settings, commit, persist, saveSettings, restore, subscribe, CATEGORIES, catInfo, ENVIRONMENTS, ACTIVITIES, ACTIVITY_GROUPS,
-  TRANSPORT, emptyPlan, defaultRequest, itemById, nextItemId } from './store.js?v=202611012244';
+  TRANSPORT, emptyPlan, defaultRequest, itemById, nextItemId } from './store.js?v=202611012256';
 import { $, $$, esc, uid, num, round, fmtWeight, fmtVolume, fmtVolSmall, fmtVolPair, weightToDisplay, weightFromDisplay, weightUnit,
   lenToDisplay, lenFromDisplay, lenUnit, volSmallToDisplay, volSmallFromDisplay, volSmallUnit, volBigToDisplay, volBigFromDisplay, volBigUnit, splitList,
-  toast, openModal, confirmDialog, markdown, debounce } from './utils.js?v=202611012244';
-import { autoPack, binPack, planStats, packingSummary, itemVolume, isContainer, isWorn, limitsFor, suggestedQty, relevance } from './planner.js?v=202611012244';
-import * as excel from './excel.js?v=202611012244';
-import * as cloud from './onedrive.js?v=202611012244';
-import { LOCAL_MODELS, hasWebGPU, gpuStatus, isModelCached, loadLocalModel, onLocalProgress, loadedModel } from './local-ai.js?v=202611012244';
-import { PROVIDERS, fetchFreeModels, fetchOvhModels, servedModel, isLocal, aiConfig, aiReady, chat, testConnection, systemPrompt, buildTripBrief, parseSuggestion, stripJson, iconFor } from './ai.js?v=202611012244';
-import { SAMPLE_ITEMS } from './sample-data.js?v=202611012244';
-import { pickerHtml, wirePicker, suggestIcon } from './emoji.js?v=202611012244';
-import { SEARCH_PROVIDERS, searchWeb } from './websearch.js?v=202611012244';
-import { openIntake } from './intake.js?v=202611012244';
+  toast, openModal, confirmDialog, markdown, debounce } from './utils.js?v=202611012256';
+import { autoPack, binPack, planStats, packingSummary, itemVolume, isContainer, isWorn, limitsFor, suggestedQty, relevance } from './planner.js?v=202611012256';
+import * as excel from './excel.js?v=202611012256';
+import * as cloud from './onedrive.js?v=202611012256';
+import { LOCAL_MODELS, hasWebGPU, gpuStatus, isModelCached, loadLocalModel, onLocalProgress, loadedModel } from './local-ai.js?v=202611012256';
+import { PROVIDERS, fetchFreeModels, fetchOvhModels, servedModel, isLocal, aiConfig, aiReady, chat, testConnection, systemPrompt, buildTripBrief, parseSuggestion, stripJson, iconFor } from './ai.js?v=202611012256';
+import { SAMPLE_ITEMS } from './sample-data.js?v=202611012256';
+import { pickerHtml, wirePicker, suggestIcon } from './emoji.js?v=202611012256';
+import { CONFIG } from './config.js?v=202611012256';
+import { SEARCH_PROVIDERS, searchWeb } from './websearch.js?v=202611012256';
+import { openIntake } from './intake.js?v=202611012256';
 
 const U = () => settings.units;
 const W = kg => fmtWeight(kg, U());
@@ -476,6 +477,7 @@ function specLookupCard() {
   const mode = settings.ai.specMode || 'auto';
   return `<div class="card" id="specCard">
     <div class="card-head"><h2>🔎 Spec lookups</h2><span class="muted">How "Add gear with AI" checks weights and sizes on the web.</span></div>
+    ${CONFIG.specProxyUrl ? '<p class="small">✅ This site provides <b>Google Search spec checks for everyone</b>; no key needed. A personal Gemini or Claude key below takes priority if you add one.</p>' : ''}
     <div class="row wrap">
       <label class="check"><input type="radio" name="specMode" value="auto" ${mode === 'auto' ? 'checked' : ''}> <b>Auto</b>: use Gemini (Google Search) or Claude web search when a key is saved below or in AI connection, otherwise the free lookup</label>
       <label class="check"><input type="radio" name="specMode" value="free" ${mode === 'free' ? 'checked' : ''}> Free lookup only</label>
