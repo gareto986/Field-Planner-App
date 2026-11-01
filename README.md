@@ -22,7 +22,9 @@ The look is inspired by the California Channel Islands: deep channel blues, kelp
 
 ## Run it
 
-No build step is needed. It is static HTML/JS, but it must be served over http(s), not opened via `file://`:
+**Windows (easiest, nothing to install):** double-click **`Start FieldPack.bat`**. A small window opens running a local web server (built-in PowerShell), and your browser opens to FieldPack. Close that window to stop it. If Windows SmartScreen warns about the file, click **More info → Run anyway**.
+
+**Mac / Linux:** the app is static HTML/JS but must be served over http(s), not opened via `file://`:
 
 ```bash
 git clone https://github.com/gareto986/Field-Planner-App.git
@@ -30,6 +32,10 @@ cd Field-Planner-App
 python3 -m http.server 8080      # or: npm start
 # open http://localhost:8080 in Chrome or Edge
 ```
+
+**VS Code:** with the *Live Server* extension, right-click `index.html` → **Open with Live Server** (or click **Go Live** in the status bar).
+
+Use **Chrome or Edge** for live two-way sync with your Excel file.
 
 On first launch you can open an existing workbook, create a new one (seeded with ~74 sample items), or just explore with sample data. A ready-made workbook is in [`sample/fieldpack-sample-database.xlsx`](sample/fieldpack-sample-database.xlsx).
 
@@ -67,6 +73,8 @@ Configure under **Settings → AI connection**. Keys are kept in the browser's l
 ## Project structure
 
 ```
+Start FieldPack.bat   Windows double-click launcher (runs serve.ps1)
+serve.ps1             tiny PowerShell static web server
 index.html            app shell
 css/styles.css        theme (light/dark), board visuals, responsive layout
 js/app.js             views, events, drag & drop, workbook + AI flows
