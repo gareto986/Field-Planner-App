@@ -1,0 +1,9 @@
+{
+  "name": "fieldpack-trip-planner",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Web app that plans field trips from an Excel gear inventory with bring-your-own-AI analysis.",
+  "scripts": {
+    "start": "npx --yes serve -l 8080 ."
+  }
+}

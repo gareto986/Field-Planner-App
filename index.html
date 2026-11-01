@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FieldPack Trip Planner</title>
+  <meta name="description" content="Plan field trips from your Excel gear inventory with AI analysis.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎒</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 64 40" class="logo" aria-hidden="true">
+        <path d="M0 40 L20 10 L30 24 L40 6 L64 40 Z" fill="var(--forest)"/>
+        <path d="M40 6 L46 15 L42 14 L38 18 L35 13 Z" fill="#fff" opacity=".9"/>
+        <circle cx="52" cy="9" r="5" fill="var(--sun)"/>
+      </svg>
+      <div><b>FieldPack</b><small>AI field-trip planner</small></div>
+    </div>
+    <nav class="tabs" aria-label="Main">
+      <button data-view="planner">🗺️ <span>Quick Plan</span></button>
+      <button data-view="board">🎒 <span>Pack Board</span></button>
+      <button data-view="inventory">🧾 <span>Inventory</span></button>
+      <button data-view="history">📜 <span>History</span></button>
+      <button data-view="settings">⚙️ <span>Settings</span></button>
+    </nav>
+    <div class="wb">
+      <span id="wbStatus" class="pill"></span>
+      <button id="btnOpen" class="btn small" title="Open an Excel workbook">📂 Open</button>
+      <button id="btnNew" class="btn small" title="Create a new workbook">✨ New</button>
+      <button id="btnSave" class="btn small primary" title="Save to workbook (Ctrl+S)">💾 Save</button>
+    </div>
+  </header>
+  <main id="view"></main>
+  <div id="modalRoot"></div>
+  <div id="toasts" aria-live="polite"></div>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

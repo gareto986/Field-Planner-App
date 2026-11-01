@@ -1,0 +1,947 @@
+import { state, settings, commit, persist, saveSettings, restore, subscribe, CATEGORIES, catInfo, ENVIRONMENTS, ACTIVITIES,
+  TRANSPORT, emptyPlan, defaultRequest, itemById, nextItemId } from './store.js';
+import { $, $$, esc, uid, num, round, fmtWeight, fmtVolume, weightToDisplay, weightFromDisplay, weightUnit, splitList,
+  toast, openModal, confirmDialog, markdown, debounce } from './utils.js';
+import { autoPack, binPack, planStats, packingSummary, itemVolume, isContainer, isWorn, limitsFor, suggestedQty, relevance } from './planner.js';
+import * as excel from './excel.js';
+import { PROVIDERS, aiConfig, aiReady, chat, testConnection, SYSTEM_PROMPT, buildTripBrief, parseSuggestion, stripJson, iconFor } from './ai.js';
+import { SAMPLE_ITEMS } from './sample-data.js';
+
+const U = () => settings.units;
+const W = kg => fmtWeight(kg, U());
+const V = l => fmtVolume(l, U());
+let aiBusy = false;
+let pendingHandle = null;
+
+const ENV_ICONS = { desert: '🏜️', forest: '🌲', mountain: '🏔️', wetland: '🦆', coastal: '🌊', arctic: '❄️', tropical: '🌴', grassland: '🌾', urban: '🏙️' };
+const ACT_ICONS = { hiking: '🥾', backpacking: '🎒', camping: '🏕️', survey: '📋', sampling: '🧪', research: '🔬', wildlife: '🦌', photography: '📷',
+  boat: '🚤', kayak: '🛶', cooking: '🍳', 'day-trip': '☀️', overnight: '🌙', remote: '📡', basecamp: '⛺' };
+
+// =====================================================================
+// Rendering
+// =====================================================================
+function render() {
+  $$('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.view === state.view));
+  renderWorkbookStatus();
+  const view = { planner: viewPlanner, board: viewBoard, inventory: viewInventory, history: viewHistory, settings: viewSettings }[state.view] || viewPlanner;
+  const scrollY = window.scrollY;
+  const shelfScroll = $('.shelf-list')?.scrollTop;
+  $('#view').innerHTML = view();
+  if (shelfScroll && $('.shelf-list')) $('.shelf-list').scrollTop = shelfScroll;
+  window.scrollTo(0, scrollY);
+  afterRender();
+}
+
+function renderWorkbookStatus() {
+  const wb = state.workbook;
+  const el = $('#wbStatus');
+  if (wb.connected) {
+    el.className = `pill ${wb.dirty ? 'warn' : 'ok'}`;
+    el.innerHTML = `📗 <b>${esc(wb.name)}</b> · ${wb.dirty ? 'unsaved changes' : 'saved'}`;
+  } else if (pendingHandle) {
+    el.className = 'pill warn clickable';
+    el.innerHTML = `🔌 Reconnect <b>${esc(pendingHandle.name)}</b>`;
+  } else {
+    el.className = 'pill';
+    el.innerHTML = wb.name ? `📄 ${esc(wb.name)} · browser copy` : '💾 Browser storage only';
+  }
+  $('#btnSave').classList.toggle('pulse', wb.dirty);
+}
+
+function chips(list, selected, field, icons) {
+  return list.map(v => `<button type="button" class="chip ${selected.includes(v) ? 'on' : ''}" data-chip="${field}" data-val="${esc(v)}">${icons[v] || '🏷️'} ${esc(v)}</button>`).join('');
+}
+
+// ---------------- Quick Planner ----------------
+function viewPlanner() {
+  const r = state.plan.request;
+  const tagPool = new Set(ACTIVITIES);
+  state.items.forEach(i => splitList(i.useCases).forEach(t => t !== 'worn' && tagPool.add(t)));
+  const lim = limitsFor(r.transport, r.people);
+  return `
+  <section class="planner">
+    <div class="card planner-form">
+      <div class="card-head"><h2>🗺️ Quick Planner</h2><span class="muted">Describe the trip; FieldPack and your AI will build the load-out.</span></div>
+      <div class="step"><span class="step-n">1</span><h3>The basics</h3></div>
+      <div class="grid2">
+        <label>Trip name<input data-req="name" value="${esc(r.name)}" placeholder="e.g. Spring wetland survey"></label>
+        <label>Destination<input data-req="destination" value="${esc(r.destination)}" placeholder="e.g. Okefenokee NWR, GA"></label>
+        <label>Start date<input type="date" data-req="startDate" value="${esc(r.startDate)}"></label>
+        <div class="grid2 tight">
+          <label>Days <span class="big-num" id="daysOut">${r.days}</span><input type="range" min="1" max="21" data-req="days" value="${r.days}"></label>
+          <label>People <span class="stepper"><button type="button" data-step="people" data-d="-1">−</button><b id="peopleOut">${r.people}</b><button type="button" data-step="people" data-d="1">+</button></span></label>
+        </div>
+      </div>
+      <div class="step"><span class="step-n">2</span><h3>Terrain</h3></div>
+      <div class="chips">${chips(ENVIRONMENTS, r.environments, 'environments', ENV_ICONS)}</div>
+      <div class="step"><span class="step-n">3</span><h3>What you'll be doing</h3></div>
+      <div class="chips">${chips([...tagPool], r.activities, 'activities', ACT_ICONS)}</div>
+      <div class="step"><span class="step-n">4</span><h3>How you're getting there</h3></div>
+      <div class="transport">${Object.entries(TRANSPORT).map(([k, t]) => `
+        <button type="button" class="tcard ${r.transport === k ? 'on' : ''}" data-transport="${k}"><span>${t.icon}</span>${esc(t.label)}</button>`).join('')}
+      </div>
+      <div class="grid2">
+        <label>Max total weight (${weightUnit(U())})<input type="number" min="0" step="0.5" data-req="maxWeightKg" data-unit="w" value="${weightToDisplay(r.maxWeightKg, U())}"></label>
+        <label>Max total volume (L)<input type="number" min="0" step="5" data-req="maxVolumeL" value="${r.maxVolumeL}"></label>
+      </div>
+      <p class="muted small">${lim ? `Preset for ${r.people} ${r.people > 1 ? 'people' : 'person'}: ${W(lim.kg)} / ${V(lim.l)}. Edit to override.` : 'Custom limits.'}</p>
+      <div class="step"><span class="step-n">5</span><h3>Requirements</h3></div>
+      <div class="grid2">
+        <label>Must-haves <textarea data-req="mustHaves" rows="3" placeholder="One per line, e.g. soil probe, satellite messenger">${esc(r.mustHaves)}</textarea></label>
+        <label>Other notes for the AI <textarea data-req="notes" rows="3" placeholder="Expected weather, hazards, permits, water sources, sample counts…">${esc(r.notes)}</textarea></label>
+      </div>
+      <div class="actions">
+        <button class="btn primary big" data-action="autopack">⚡ Auto-pack from inventory</button>
+        <button class="btn accent big" data-action="autopack-ai" ${aiReady() ? '' : 'title="Connect an AI in Settings first"'}>🤖 Auto-pack + AI trip plan</button>
+        <button class="btn ghost" data-action="go-board">Open Pack Board →</button>
+        <button class="btn ghost" data-action="new-trip">↺ New trip</button>
+      </div>
+    </div>
+    <aside class="card trip-preview" id="tripPreview">${tripPreview()}</aside>
+  </section>`;
+}
+
+function tripPreview() {
+  const r = state.plan.request;
+  const env = r.environments[0];
+  const scene = { desert: ['🌵', '☀️', '🏜️'], forest: ['🌲', '🌳', '🍄'], mountain: ['🏔️', '⛰️', '🦅'], wetland: ['🦆', '🌾', '🐸'], coastal: ['🌊', '🐚', '🦀'],
+    arctic: ['❄️', '🧊', '🐧'], tropical: ['🌴', '🦜', '🌺'], grassland: ['🌾', '🦬', '🌼'], urban: ['🏙️', '🚏', '🌆'] }[env] || ['⛰️', '🌲', '🌤️'];
+  const s = planStats();
+  const t = TRANSPORT[r.transport] || TRANSPORT.custom;
+  return `
+    <div class="scene" data-env="${esc(env || 'default')}">
+      <span class="s1">${scene[1]}</span><span class="s2">${scene[0]}</span><span class="s3">${scene[2]}</span>
+      <div class="walkers">${'🧑‍🔬'.repeat(Math.min(r.people, 6))}${r.people > 6 ? `<small>+${r.people - 6}</small>` : ''}<span class="vehicle">${t.icon}</span></div>
+    </div>
+    <h3>${esc(r.name || 'Untitled trip')}</h3>
+    <p class="muted">${esc(r.destination || 'Somewhere wild')}${r.startDate ? ` · ${esc(r.startDate)}` : ''}</p>
+    <div class="stat-row">
+      <div><b>${r.days}</b><span>days</span></div><div><b>${r.people}</b><span>people</span></div>
+      <div><b>${W(r.maxWeightKg)}</b><span>weight cap</span></div><div><b>${round(r.maxVolumeL, 0)} L</b><span>space cap</span></div>
+    </div>
+    <div class="tagline">${r.environments.map(e => `<span class="tag">${ENV_ICONS[e] || ''} ${esc(e)}</span>`).join('')}${r.activities.map(a => `<span class="tag alt">${ACT_ICONS[a] || '🏷️'} ${esc(a)}</span>`).join('')}</div>
+    <hr>
+    <p class="small"><b>Current load-out:</b> ${s.count} items · ${state.plan.containers.length} containers · ${W(s.totalKg)}
+      ${r.maxWeightKg ? `(${Math.round(s.weightPct * 100)}% of cap)` : ''}</p>
+    ${miniBar(s.weightPct)}
+    <p class="muted small">Inventory: ${state.items.length} items in ${state.workbook.connected ? esc(state.workbook.name) : 'browser storage'}.</p>`;
+}
+
+const miniBar = pct => `<div class="minibar"><i style="width:${Math.min(100, pct * 100)}%;background:${pctColor(pct)}"></i></div>`;
+const pctColor = p => p > 1 ? 'var(--bad)' : p > 0.85 ? 'var(--warn)' : 'var(--good)';
+
+// ---------------- Pack Board ----------------
+function gauge(label, pct, value, sub) {
+  const r = 52, len = Math.PI * r, p = Math.max(0, Math.min(pct, 1.25)) / 1.25;
+  return `<div class="gauge">
+    <svg viewBox="0 0 130 78" aria-hidden="true">
+      <path d="M13 70 A52 52 0 0 1 117 70" class="g-track"/>
+      <path d="M13 70 A52 52 0 0 1 117 70" class="g-fill" style="stroke:${pctColor(pct)};stroke-dasharray:${len};stroke-dashoffset:${len * (1 - p)}"/>
+      <line x1="${65 + 41.6 * Math.cos(Math.PI * (1 - 0.8))}" y1="${70 - 41.6 * Math.sin(Math.PI * (1 - 0.8))}" x2="${65 + 56 * Math.cos(Math.PI * (1 - 0.8))}" y2="${70 - 56 * Math.sin(Math.PI * (1 - 0.8))}" class="g-limit"/>
+      <text x="65" y="62" text-anchor="middle" class="g-pct">${Math.round(pct * 100)}%</text>
+    </svg>
+    <div class="g-label">${label}</div><div class="g-val">${value}</div><div class="g-sub muted">${sub}</div></div>`;
+}
+
+function categoryBar(byCat, total) {
+  const entries = Object.entries(byCat).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+  if (!entries.length) return '<p class="muted small">Weight by category appears here once items are packed.</p>';
+  return `<div class="catbar">${entries.map(([c, v]) => `<i style="flex:${v};background:${catInfo(c).color}" title="${esc(c)}: ${W(v)}"></i>`).join('')}</div>
+  <div class="legend">${entries.map(([c, v]) => `<span><i style="background:${catInfo(c).color}"></i>${catInfo(c).icon} ${esc(c)} <b>${W(v)}</b> <small>${Math.round(v / total * 100)}%</small></span>`).join('')}</div>`;
+}
+
+function tile(p) {
+  const it = itemById(p.itemId);
+  if (!it) return '';
+  return `<div class="tile ${isWorn(it) ? 'worn' : ''}" draggable="true" data-drag="packed" data-item="${esc(it.id)}" data-from="${esc(p.container || 'loose')}" style="--c:${catInfo(it.category).color}" title="${esc(it.name)} · ${W(it.weightKg)} each">
+    <span class="ti">${it.icon || catInfo(it.category).icon}</span>
+    <span class="tn">${esc(it.name)}</span>
+    <span class="tq">×${p.qty}</span>
+    <span class="tw">${W(it.weightKg * p.qty)}</span>
+    <span class="tile-actions"><button data-tile="dec" title="One less">−</button><button data-tile="inc" title="One more">+</button><button data-tile="rm" title="Remove">✕</button></span>
+  </div>`;
+}
+
+function viewBoard() {
+  const plan = state.plan, r = plan.request, s = planStats();
+  const containerOpts = state.items.filter(isContainer);
+  const inPlan = {}; plan.packed.forEach(p => { inPlan[p.itemId] = (inPlan[p.itemId] || 0) + p.qty; });
+  const shelfItems = state.items.filter(i => !isContainer(i));
+  const groups = {};
+  shelfItems.forEach(i => (groups[i.category] ||= []).push(i));
+  const loose = plan.packed.filter(p => !p.container || !plan.containers.some(c => c.uid === p.container));
+  const warnings = [];
+  if (s.weightPct > 1) warnings.push(`Over the weight cap by ${W(s.totalKg - r.maxWeightKg)}.`);
+  if (r.maxVolumeL && s.transportPct > 1) warnings.push(`Over the volume cap by ${V(s.transportL - r.maxVolumeL)}.`);
+  s.overfull.forEach(u => { const c = plan.containers.find(x => x.uid === u); warnings.push(`${itemById(c.itemId)?.name} is overfilled.`); });
+  s.shortages.forEach(x => warnings.push(`Using ${x.q}× ${itemById(x.id)?.name} but you own ${x.have}.`));
+
+  return `
+  <section class="board-head card">
+    <div class="trip-title">
+      <h2>🎒 ${esc(r.name || 'Untitled trip')}</h2>
+      <p class="muted">${esc(r.destination || 'No destination')} · ${r.days} days · ${r.people} people · ${TRANSPORT[r.transport]?.icon || ''} ${esc(TRANSPORT[r.transport]?.label || r.transport)}
+        <button class="link" data-action="go-planner">edit requirements</button></p>
+      <div class="row wrap">
+        <button class="btn primary" data-action="autopack">⚡ Auto-pack</button>
+        <button class="btn" data-action="repack" title="Re-distribute items across containers">🧩 Optimize placement</button>
+        <button class="btn" data-action="copy-list">📋 Copy checklist</button>
+        <button class="btn success" data-action="save-trip">💾 Save trip to history</button>
+        <button class="btn ghost" data-action="clear-board">🗑 Clear</button>
+      </div>
+    </div>
+    <div class="gauges">
+      ${gauge('Weight', s.weightPct, W(s.totalKg), `of ${W(r.maxWeightKg)} · ${W(s.kgPerPerson)}/person`)}
+      ${gauge('Container fill', s.spacePct, `${round(s.gearL - s.looseL, 1)} L`, `of ${round(s.capacityL, 1)} L capacity`)}
+      ${gauge('Transport volume', s.transportPct, V(s.transportL), `of ${V(r.maxVolumeL)} allowed`)}
+    </div>
+    <div class="cat-wrap">${categoryBar(s.byCat, s.totalKg)}</div>
+    ${warnings.length ? `<div class="warnings">${warnings.map(w => `<span>⚠️ ${esc(w)}</span>`).join('')}</div>` : ''}
+  </section>
+
+  <section class="board">
+    <aside class="card shelf" data-drop="shelf">
+      <div class="card-head"><h3>🧺 Gear shelf</h3><span class="muted small">Drag into a bag, or tap +</span></div>
+      <input class="search" id="shelfSearch" placeholder="Filter gear…" value="${esc(state.shelfFilter || '')}">
+      <div class="shelf-list">
+        ${Object.entries(groups).map(([cat, list]) => `
+          <div class="shelf-group"><h4 style="--c:${catInfo(cat).color}">${catInfo(cat).icon} ${esc(cat)}</h4>
+          ${list.map(it => {
+            const used = inPlan[it.id] || 0, rel = relevance(it, r) >= 3;
+            return `<div class="shelf-item ${used ? 'used' : ''}" draggable="true" data-drag="shelf" data-item="${esc(it.id)}" data-name="${esc(it.name.toLowerCase())}">
+              <span class="ti">${it.icon || catInfo(it.category).icon}</span>
+              <span class="sn">${esc(it.name)} ${rel ? '<span class="star" title="Matches this trip">★</span>' : ''}<small>${W(it.weightKg)} · ${round(itemVolume(it), 1)} L</small></span>
+              <span class="su ${used > (it.qtyOwned || Infinity) ? 'bad' : ''}">${used}/${it.qtyOwned || '∞'}</span>
+              <button class="add" data-shelf-add="${esc(it.id)}" title="Add to plan">+</button>
+            </div>`;
+          }).join('')}</div>`).join('') || '<p class="muted">No gear yet. Add items in Inventory.</p>'}
+      </div>
+    </aside>
+
+    <div class="packzone">
+      <div class="row wrap packzone-head">
+        <h3>🧳 Containers</h3>
+        <select id="addContainer"><option value="">＋ Add a container…</option>
+          ${containerOpts.map(c => `<option value="${esc(c.id)}">${c.icon || '🎒'} ${esc(c.name)} (${round(c.capacityL, 0)} L)</option>`).join('')}</select>
+      </div>
+      <div class="containers">
+        ${plan.containers.map(c => containerCard(c, s)).join('')}
+        <div class="container loose-zone" data-drop="loose">
+          <div class="c-head"><span class="c-icon">🧍</span><div><b>Worn / carried loose</b><small class="muted">Boots, jackets, hand-carry items</small></div></div>
+          <div class="c-body">${loose.map(tile).join('') || '<p class="muted small drop-hint">Drop items here</p>'}</div>
+        </div>
+      </div>
+    </div>
+
+    <aside class="card ai-panel">${aiPanel()}</aside>
+  </section>`;
+}
+
+function containerCard(c, s) {
+  const it = itemById(c.itemId) || { name: c.itemId, icon: '❓', capacityL: 0, maxLoadKg: 0, weightKg: 0 };
+  const pc = s.perContainer[c.uid];
+  const vp = pc.cap ? pc.usedL / pc.cap : 0, kp = pc.load ? pc.usedKg / pc.load : 0;
+  const items = state.plan.packed.filter(p => p.container === c.uid);
+  const fill = Math.min(1, Math.max(vp, kp));
+  return `<div class="container ${s.overfull.includes(c.uid) ? 'over' : ''}" data-drop="${esc(c.uid)}" style="--fill:${Math.round(fill * 100)}%;--fillc:${pctColor(Math.max(vp, kp))}">
+    <div class="c-head">
+      <span class="c-icon">${it.icon || '🎒'}</span>
+      <div><b>${esc(it.name)}</b><small class="muted">${W(pc.usedKg + it.weightKg)} packed · ${round(pc.usedL, 1)}/${round(pc.cap, 0)} L</small></div>
+      <button class="icon-btn" data-remove-container="${esc(c.uid)}" title="Remove container (items go loose)">✕</button>
+    </div>
+    <div class="c-meters">
+      <div title="Volume">${miniBar(vp)}<small>📦 ${Math.round(vp * 100)}%</small></div>
+      <div title="Load">${miniBar(kp)}<small>⚖️ ${pc.load ? Math.round(kp * 100) + '%' : '–'}</small></div>
+    </div>
+    <div class="c-body">${items.map(tile).join('') || '<p class="muted small drop-hint">Drop gear here</p>'}</div>
+  </div>`;
+}
+
+function aiPanel() {
+  const ai = state.plan.ai;
+  const c = aiConfig();
+  if (!aiReady()) return `<div class="card-head"><h3>🤖 AI trip analyst</h3></div>
+    <div class="empty"><div class="big-emoji">🔌</div><p>Connect Claude, OpenAI, Gemini or a local model to get a detailed trip plan, risk check and load optimization.</p>
+    <button class="btn accent" data-action="go-settings">Connect an AI</button></div>`;
+  const msgs = ai.messages.map((m, i) => i === 0 && m.role === 'user'
+    ? `<details class="brief"><summary>📨 Trip brief sent to ${esc(PROVIDERS[ai.provider]?.label || ai.provider)}</summary><pre>${esc(m.content)}</pre></details>`
+    : `<div class="msg ${m.role}">${m.role === 'assistant' ? markdown(stripJson(m.content)) : esc(m.content)}</div>`).join('');
+  const sug = ai.suggestion;
+  return `<div class="card-head"><h3>🤖 AI trip analyst</h3><span class="muted small">${esc(PROVIDERS[c.provider].label.split(' (')[0])} · ${esc(c.model)}</span></div>
+    <button class="btn accent wide" data-action="ai-analyze" ${aiBusy ? 'disabled' : ''}>${ai.messages.length ? '🔄 Re-analyze current plan' : '✨ Analyze this trip'}</button>
+    <div class="chat">${msgs || '<p class="muted small">The AI gets your requirements, full inventory and the current board, then returns a plan you can apply with one click.</p>'}
+      ${aiBusy ? '<div class="msg assistant thinking"><span></span><span></span><span></span> thinking through your trip…</div>' : ''}</div>
+    ${sug ? `<div class="suggestion">
+      <b>AI packing plan:</b> ${sug.items.length} items in ${sug.containers.length} containers.
+      <button class="btn primary wide" data-action="ai-apply">✅ Apply AI plan to board</button>
+      ${sug.warnings.length ? `<ul class="warn-list">${sug.warnings.map(w => `<li>⚠️ ${esc(w)}</li>`).join('')}</ul>` : ''}
+      ${sug.missing.length ? `<p class="small"><b>Suggested additions</b></p><ul class="missing">${sug.missing.map((m, i) => `<li><span>🛒 ${esc(m.name)} <small class="muted">${esc(m.reason || '')}</small></span><button class="btn tiny" data-missing="${i}">＋ Inventory</button></li>`).join('')}</ul>` : ''}
+    </div>` : ''}
+    ${ai.messages.length ? `<form class="followup" id="followup"><input name="q" placeholder="Ask a follow-up… (e.g. what if it rains all week?)" ${aiBusy ? 'disabled' : ''}><button class="btn" ${aiBusy ? 'disabled' : ''}>Send</button></form>` : ''}`;
+}
+
+// ---------------- Inventory ----------------
+function viewInventory() {
+  const f = state.invFilter || { q: '', cat: '', sort: 'category' };
+  let list = state.items.filter(i => (!f.cat || i.category === f.cat) &&
+    (!f.q || `${i.name} ${i.id} ${splitList(i.useCases).join(' ')} ${i.notes}`.toLowerCase().includes(f.q.toLowerCase())));
+  const sorters = { category: (a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name), name: (a, b) => a.name.localeCompare(b.name),
+    weight: (a, b) => b.weightKg - a.weightKg, qty: (a, b) => (b.qtyOwned || 0) - (a.qtyOwned || 0) };
+  list = list.sort(sorters[f.sort] || sorters.category);
+  const totalUnits = state.items.reduce((s, i) => s + (i.qtyOwned || 0), 0);
+  const totalKg = state.items.reduce((s, i) => s + i.weightKg * (i.qtyOwned || 0), 0);
+  const cap = state.items.filter(isContainer).reduce((s, i) => s + i.capacityL * (i.qtyOwned || 1), 0);
+  const byCat = {}; state.items.forEach(i => { byCat[i.category] = (byCat[i.category] || 0) + 1; });
+  const inPlan = new Set(state.plan.packed.map(p => p.itemId).concat(state.plan.containers.map(c => c.itemId)));
+  return `
+  <section class="inv-head">
+    <div class="kpis">
+      <div class="kpi"><span>🧾</span><b>${state.items.length}</b><small>item types</small></div>
+      <div class="kpi"><span>🔢</span><b>${totalUnits}</b><small>units owned</small></div>
+      <div class="kpi"><span>⚖️</span><b>${W(totalKg)}</b><small>total gear weight</small></div>
+      <div class="kpi"><span>🎒</span><b>${round(cap, 0)} L</b><small>container capacity</small></div>
+    </div>
+    <form class="card quickadd" id="quickAdd">
+      <b>⚡ Quick add</b>
+      <select name="category">${Object.keys(CATEGORIES).map(c => `<option>${c}</option>`).join('')}</select>
+      <input name="name" placeholder="Item name" required>
+      <input name="weight" type="number" step="any" min="0" placeholder="Weight (${weightUnit(U())})">
+      <input name="qty" type="number" min="0" placeholder="Qty" value="1">
+      <button class="btn primary">Add</button>
+      <button type="button" class="btn" data-action="new-item">＋ Detailed item…</button>
+    </form>
+  </section>
+  <section class="card">
+    <div class="row wrap filters">
+      <input class="search" id="invSearch" placeholder="Search name, tag, notes…" value="${esc(f.q)}">
+      <div class="chips">
+        <button class="chip ${!f.cat ? 'on' : ''}" data-invcat="">All ${state.items.length}</button>
+        ${Object.keys(CATEGORIES).filter(c => byCat[c]).map(c => `<button class="chip ${f.cat === c ? 'on' : ''}" data-invcat="${c}" style="--c:${catInfo(c).color}">${catInfo(c).icon} ${c} <small>${byCat[c]}</small></button>`).join('')}
+      </div>
+      <label class="inline">Sort <select id="invSort">${['category', 'name', 'weight', 'qty'].map(s => `<option ${f.sort === s ? 'selected' : ''}>${s}</option>`).join('')}</select></label>
+    </div>
+    <div class="inv-grid">
+      ${list.map(i => `<button class="inv-card" data-edit="${esc(i.id)}" style="--c:${catInfo(i.category).color}">
+        <span class="inv-icon">${i.icon || catInfo(i.category).icon}</span>
+        <span class="inv-qty">×${i.qtyOwned || 0}</span>
+        ${inPlan.has(i.id) ? '<span class="inv-inplan" title="In current plan">🎒</span>' : ''}
+        <b>${esc(i.name)}</b>
+        <small class="muted">${esc(i.id)} · ${esc(i.category)}</small>
+        <span class="inv-stats">⚖️ ${W(i.weightKg)} · 📦 ${round(itemVolume(i), 1)} L${isContainer(i) ? ` · holds ${round(i.capacityL, 0)} L` : ''}</span>
+        <span class="tags">${splitList(i.useCases).slice(0, 4).map(t => `<span class="tag">${esc(t)}</span>`).join('')}${i.consumable ? '<span class="tag alt">consumable</span>' : ''}${i.perPerson ? '<span class="tag alt">per person</span>' : ''}</span>
+      </button>`).join('') || '<p class="muted">No items match.</p>'}
+    </div>
+  </section>`;
+}
+
+// ---------------- History ----------------
+function viewHistory() {
+  const trips = [...state.trips].sort((a, b) => String(b.created).localeCompare(String(a.created)));
+  return `<section class="card">
+    <div class="card-head"><h2>📜 Trip history</h2><span class="muted">Stored in the <b>Trips</b> sheet of your workbook.</span></div>
+    <div class="history">
+    ${trips.map(t => `<article class="trip-card">
+      <div class="trip-top"><b>${esc(t.name || 'Untitled trip')}</b><span class="status s-${esc(t.status || 'planned')}">${esc(t.status || 'planned')}</span></div>
+      <p class="muted small">${esc(t.id)} · saved ${esc(String(t.created).slice(0, 16).replace('T', ' '))}</p>
+      <p>📍 ${esc(t.destination || '-')} · 📅 ${esc(t.startDate || '-')} · ${t.days}d · 👥 ${t.people}</p>
+      <p class="small">⚖️ ${W(t.totalWeightKg || 0)} / ${W(t.maxWeightKg || 0)} · ${(t.environments || []).map(e => ENV_ICONS[e] || e).join(' ')} ${(t.activities || []).map(a => ACT_ICONS[a] || '').join('')}</p>
+      ${t.aiAnalysis ? `<p class="small">🤖 AI analysis by ${esc(t.aiProvider || '')} ${esc(t.aiModel || '')}</p>` : ''}
+      <div class="row wrap">
+        <button class="btn small primary" data-load-trip="${esc(t.id)}">Open on board</button>
+        <button class="btn small" data-dup-trip="${esc(t.id)}">Duplicate as new</button>
+        ${t.aiAnalysis ? `<button class="btn small" data-view-ai="${esc(t.id)}">View AI plan</button>` : ''}
+        <select class="small" data-trip-status="${esc(t.id)}">${['planned', 'packed', 'in field', 'completed', 'cancelled'].map(s => `<option ${t.status === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
+        <button class="btn small ghost danger-text" data-del-trip="${esc(t.id)}">Delete</button>
+      </div>
+    </article>`).join('') || '<div class="empty"><div class="big-emoji">🏕️</div><p>No trips saved yet. Build a plan and hit <b>Save trip to history</b>.</p></div>'}
+    </div></section>`;
+}
+
+// ---------------- Settings ----------------
+function viewSettings() {
+  const c = aiConfig();
+  const p = PROVIDERS[c.provider];
+  return `<section class="settings">
+    <div class="card">
+      <div class="card-head"><h2>🤖 AI connection</h2><span class="muted">Bring your own AI. Requests go straight from this browser to the provider.</span></div>
+      <div class="providers">${Object.entries(PROVIDERS).map(([k, v]) => `<button class="tcard ${c.provider === k ? 'on' : ''}" data-provider="${k}">
+        <span>${{ anthropic: '✳️', openai: '⚪', gemini: '💎', compatible: '🦙' }[k]}</span>${esc(v.label)}</button>`).join('')}</div>
+      <div class="grid2">
+        <label>Model<input id="aiModel" value="${esc(settings.ai.model)}" placeholder="${esc(p.defaultModel)}"></label>
+        <label>API key ${p.keyUrl ? `<a href="${p.keyUrl}" target="_blank" rel="noopener" class="small">get a key ↗</a>` : ''}<input id="aiKey" type="password" autocomplete="off" value="${esc(c.apiKey)}" placeholder="${esc(p.keyHint)}"></label>
+        ${c.provider === 'compatible' ? `<label class="span2">Base URL<input id="aiBase" value="${esc(settings.ai.baseUrl)}" placeholder="${esc(p.baseUrl)}"></label>` : ''}
+      </div>
+      <div class="row wrap"><button class="btn primary" data-action="ai-save">Save</button><button class="btn" data-action="ai-test">🔌 Test connection</button><span id="aiTestOut" class="muted small"></span></div>
+      <p class="muted small">🔐 Your key is stored only in this browser's local storage, and the Excel file never sees it. Use a key with a spending limit.
+      ${c.provider === 'compatible' ? 'For Ollama, start it with <code>OLLAMA_ORIGINS=*</code> so the browser can reach it.' : ''}
+      ${c.provider === 'anthropic' ? 'Claude is called with direct browser access enabled, and refusals fall back automatically on current models.' : ''}</p>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>📗 Excel database</h2></div>
+      <p>${state.workbook.connected ? `Connected to <b>${esc(state.workbook.name)}</b>. ${excel.canSaveInPlace ? 'Saves write straight back into the file.' : ''}` : 'No workbook connected. Data lives in this browser until you save.'}</p>
+      <div class="row wrap">
+        <button class="btn primary" data-action="wb-open">📂 Open workbook</button>
+        <button class="btn" data-action="wb-new">✨ New workbook from current data</button>
+        <button class="btn" data-action="wb-save">💾 Save now</button>
+        ${state.workbook.connected ? '<button class="btn ghost" data-action="wb-disconnect">Disconnect</button>' : ''}
+      </div>
+      <label class="check"><input type="checkbox" id="autosave" ${settings.autosave ? 'checked' : ''}> Auto-save changes to the workbook</label>
+      ${excel.canSaveInPlace ? '' : '<p class="muted small">ℹ️ This browser cannot write files in place, so Save downloads an updated .xlsx. Use Chrome or Edge for live two-way sync.</p>'}
+      <details><summary>Workbook layout</summary>
+        <p class="small"><b>Items</b>: ${excel.ITEM_COLS.map(c => esc(c[1])).join(' · ')}</p>
+        <p class="small"><b>Trips</b>: ${excel.TRIP_COLS.map(c => esc(c[1])).join(' · ')}</p>
+        <p class="small muted">Headers are matched loosely (for example "Weight (lb)" converts automatically). Other sheets in your workbook are left untouched.</p>
+      </details>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>⚙️ Preferences</h2></div>
+      <div class="row wrap">
+        <label class="inline">Units <select id="units"><option value="metric" ${U() === 'metric' ? 'selected' : ''}>Metric (kg, L)</option><option value="imperial" ${U() === 'imperial' ? 'selected' : ''}>Imperial (lb)</option></select></label>
+        <button class="btn" data-action="load-sample">Load sample gear</button>
+        <button class="btn ghost danger-text" data-action="reset-all">Reset browser data</button>
+      </div>
+    </div>
+  </section>`;
+}
+
+// =====================================================================
+// After-render wiring (things delegation can't easily handle)
+// =====================================================================
+function afterRender() {
+  const shelfSearch = $('#shelfSearch');
+  if (shelfSearch) {
+    const apply = () => {
+      const q = shelfSearch.value.toLowerCase(); state.shelfFilter = shelfSearch.value;
+      $$('.shelf-item').forEach(el => el.hidden = q && !el.dataset.name.includes(q));
+      $$('.shelf-group').forEach(g => g.hidden = !$$('.shelf-item', g).some(el => !el.hidden));
+    };
+    shelfSearch.oninput = apply; apply();
+  }
+  const addC = $('#addContainer');
+  if (addC) addC.onchange = () => {
+    if (!addC.value) return;
+    state.plan.containers.push({ uid: uid('C'), itemId: addC.value });
+    commit({ dirty: false });
+  };
+  const inv = $('#invSearch');
+  if (inv) inv.oninput = debounce(() => { state.invFilter = { ...(state.invFilter || {}), q: inv.value }; render(); $('#invSearch').focus(); $('#invSearch').setSelectionRange(9e9, 9e9); }, 200);
+  const sort = $('#invSort');
+  if (sort) sort.onchange = () => { state.invFilter = { ...(state.invFilter || {}), sort: sort.value }; render(); };
+  const qa = $('#quickAdd');
+  if (qa) qa.onsubmit = e => {
+    e.preventDefault();
+    const f = new FormData(qa);
+    const category = f.get('category');
+    upsertItem({ id: nextItemId(category), name: String(f.get('name')).trim(), category, icon: catInfo(category).icon,
+      weightKg: weightFromDisplay(f.get('weight'), U()), qtyOwned: num(f.get('qty'), 1) });
+    toast(`Added ${f.get('name')}`, 'ok');
+  };
+  const fu = $('#followup');
+  if (fu) fu.onsubmit = e => { e.preventDefault(); const q = fu.q.value.trim(); if (q) aiFollowup(q); };
+  const units = $('#units');
+  if (units) units.onchange = () => { settings.units = units.value; saveSettings(); render(); };
+  const as = $('#autosave');
+  if (as) as.onchange = () => { settings.autosave = as.checked; saveSettings(); };
+  $$('[data-trip-status]').forEach(sel => sel.onchange = () => {
+    const t = state.trips.find(x => x.id === sel.dataset.tripStatus); t.status = sel.value; commit();
+  });
+  const chatEl = $('.chat');
+  if (chatEl && aiBusy) chatEl.scrollTop = chatEl.scrollHeight;
+}
+
+// =====================================================================
+// Actions
+// =====================================================================
+function setView(v) { state.view = v; persist(); render(); window.scrollTo(0, 0); }
+
+function setRequest(key, value) {
+  const r = state.plan.request;
+  r[key] = value;
+  if (key === 'people' || key === 'transport') {
+    const lim = limitsFor(r.transport, r.people);
+    if (lim) { r.maxWeightKg = lim.kg; r.maxVolumeL = lim.l; }
+  }
+  commit({ dirty: false, render: false });
+}
+
+function runAutopack() {
+  if (!state.items.length) { toast('Your inventory is empty. Add items or load the sample gear first.', 'warn'); return false; }
+  const res = autoPack(state.plan.request);
+  state.plan.containers = res.containers;
+  state.plan.packed = res.packed;
+  commit({ dirty: false });
+  const s = planStats();
+  toast(`Packed ${s.count} items into ${res.containers.length} containers · ${W(s.totalKg)}`, s.weightPct > 1 ? 'warn' : 'ok');
+  return true;
+}
+
+function addToPlan(itemId, container, qty) {
+  const it = itemById(itemId);
+  if (!it) return;
+  if (isContainer(it) && container === undefined) { state.plan.containers.push({ uid: uid('C'), itemId }); return; }
+  if (container === undefined) {
+    // pick the first container with room, else loose
+    const s = planStats();
+    const target = isWorn(it) ? null : state.plan.containers.find(c => {
+      const pc = s.perContainer[c.uid]; return pc.cap - pc.usedL >= itemVolume(it) && (!pc.load || pc.load - pc.usedKg >= it.weightKg);
+    });
+    container = target?.uid ?? null;
+  }
+  const already = state.plan.packed.some(p => p.itemId === itemId);
+  qty ??= already ? 1 : suggestedQty(it, state.plan.request);
+  const ex = state.plan.packed.find(p => p.itemId === itemId && p.container === container);
+  if (ex) ex.qty += qty; else state.plan.packed.push({ itemId, qty, container });
+}
+
+function movePacked(itemId, from, to) {
+  const fromKey = from === 'loose' ? null : from;
+  const toKey = to === 'loose' ? null : to;
+  const src = state.plan.packed.find(p => p.itemId === itemId && (p.container ?? null) === fromKey);
+  if (!src || fromKey === toKey) return;
+  state.plan.packed = state.plan.packed.filter(p => p !== src);
+  if (to === 'shelf') return;
+  const ex = state.plan.packed.find(p => p.itemId === itemId && (p.container ?? null) === toKey);
+  if (ex) ex.qty += src.qty; else state.plan.packed.push({ ...src, container: toKey });
+}
+
+function tripRecord() {
+  const p = state.plan, r = p.request, s = planStats(p);
+  const analysis = p.ai.messages.filter(m => m.role === 'assistant').map(m => m.content).join('\n\n---\n\n');
+  const prev = state.trips.find(t => t.id === p.id);
+  return {
+    id: p.id, created: prev?.created || new Date().toISOString(), status: prev?.status || 'planned',
+    name: r.name, destination: r.destination, startDate: r.startDate, days: r.days, people: r.people,
+    environments: r.environments, activities: r.activities, transport: r.transport,
+    maxWeightKg: round(r.maxWeightKg, 2), maxVolumeL: round(r.maxVolumeL, 1), mustHaves: r.mustHaves, notes: r.notes,
+    totalWeightKg: round(s.totalKg, 2), totalVolumeL: round(s.transportL, 1),
+    packingSummary: packingSummary(p),
+    packingList: { containers: p.containers, packed: p.packed },
+    aiProvider: p.ai.provider || '', aiModel: p.ai.model || '', aiAnalysis: analysis,
+  };
+}
+
+function planFromTrip(t, asNew = false) {
+  const plan = emptyPlan();
+  if (!asNew) plan.id = t.id;
+  plan.request = { ...defaultRequest(), name: asNew ? `${t.name} (copy)` : t.name, destination: t.destination, startDate: asNew ? '' : t.startDate,
+    days: t.days || 1, people: t.people || 1, environments: t.environments || [], activities: t.activities || [], transport: t.transport || 'custom',
+    maxWeightKg: t.maxWeightKg || 0, maxVolumeL: t.maxVolumeL || 0, mustHaves: t.mustHaves || '', notes: t.notes || '' };
+  plan.containers = t.packingList?.containers || [];
+  plan.packed = t.packingList?.packed || [];
+  if (t.aiAnalysis && !asNew) {
+    plan.ai = { messages: [{ role: 'user', content: '(trip brief from history)' }, { role: 'assistant', content: t.aiAnalysis }],
+      provider: t.aiProvider, model: t.aiModel, suggestion: parseSuggestion(t.aiAnalysis) };
+  }
+  return plan;
+}
+
+// ---------- AI ----------
+async function aiAnalyze() {
+  if (!aiReady()) { setView('settings'); toast('Connect an AI provider first.', 'warn'); return; }
+  const c = aiConfig();
+  const brief = buildTripBrief();
+  state.plan.ai = { messages: [{ role: 'user', content: brief }], suggestion: null, provider: c.provider, model: c.model };
+  await aiRun();
+}
+
+async function aiFollowup(q) {
+  state.plan.ai.messages.push({ role: 'user', content: q });
+  await aiRun();
+}
+
+async function aiRun() {
+  aiBusy = true; commit({ dirty: false });
+  try {
+    const msgs = state.plan.ai.messages.map(m => ({ role: m.role, content: m.content }));
+    if (msgs[0]?.content === '(trip brief from history)') msgs[0].content = buildTripBrief();
+    const reply = await chat(SYSTEM_PROMPT, msgs);
+    state.plan.ai.messages.push({ role: 'assistant', content: reply });
+    const sug = parseSuggestion(reply);
+    if (sug) state.plan.ai.suggestion = sug;
+    toast(sug ? 'AI plan ready. Review it and click Apply.' : 'AI replied.', 'ok');
+  } catch (e) {
+    console.error(e);
+    state.plan.ai.messages.pop();
+    toast(`AI error: ${e.message}`, 'bad', 8000);
+  } finally { aiBusy = false; commit({ dirty: false }); }
+}
+
+function aiApply() {
+  const sug = state.plan.ai.suggestion;
+  if (!sug) return;
+  const containers = sug.containers.map(c => ({ uid: uid('C'), itemId: c.itemId }));
+  const packed = [];
+  sug.items.forEach(x => {
+    const container = x.container == null ? null : containers[x.container]?.uid ?? null;
+    const ex = packed.find(p => p.itemId === x.id && p.container === container);
+    if (ex) ex.qty += x.qty; else packed.push({ itemId: x.id, qty: x.qty, container });
+  });
+  state.plan.containers = containers; state.plan.packed = packed;
+  commit({ dirty: false });
+  toast('Applied the AI packing plan ✨', 'ok');
+  $$('.tile').forEach((t, i) => { t.style.animationDelay = `${i * 25}ms`; t.classList.add('pop'); });
+}
+
+// ---------- Inventory ----------
+function upsertItem(item) {
+  item.updated = new Date().toISOString().slice(0, 10);
+  const i = state.items.findIndex(x => x.id === item.id);
+  const base = { lengthCm: 0, widthCm: 0, heightCm: 0, volumeL: 0, qtyOwned: 1, useCases: [], environments: ['all'], perPerson: false,
+    consumable: false, perPersonDay: 0, capacityL: 0, maxLoadKg: 0, notes: '', icon: '', weightKg: 0 };
+  if (i >= 0) state.items[i] = { ...state.items[i], ...item }; else state.items.push({ ...base, ...item });
+  commit();
+}
+
+const EMOJI = ['🎒', '👜', '📦', '🧳', '🛍️', '🧥', '👕', '👖', '🧦', '🧤', '🥾', '👒', '⛺', '🛌', '🔥', '🍳', '🍲', '🥜', '🍫', '☕', '💧', '🫗', '🚰',
+  '🧭', '🗺️', '⛑️', '📡', '🔦', '🆘', '🧴', '🛠️', '⛏️', '🪢', '🔋', '☀️', '📷', '📓', '🧪', '📏', '📟', '🔭', '🪥', '🧻', '🕶️', '🪓', '🎣', '🧯', '🪫'];
+
+function itemModal(existing, prefill = {}) {
+  const it = existing || { id: '', name: '', category: 'Other', icon: '', weightKg: 0, qtyOwned: 1, useCases: [], environments: ['all'], ...prefill };
+  const tagPool = [...new Set([...ACTIVITIES, 'rain', 'cold', 'hot', 'sun', 'emergency', 'navigation', 'electronics', 'repair', 'vehicle', 'worn',
+    ...state.items.flatMap(i => splitList(i.useCases))])];
+  openModal(`
+    <h2>${existing ? 'Edit item' : 'New inventory item'}</h2>
+    <form id="itemForm" class="item-form">
+      <div class="icon-pick">
+        <input name="icon" maxlength="4" value="${esc(it.icon || '')}" class="big-icon" aria-label="Icon">
+        <div class="emoji-grid">${EMOJI.map(e => `<button type="button" data-emoji="${e}">${e}</button>`).join('')}</div>
+      </div>
+      <div class="grid2">
+        <label>Name<input name="name" required value="${esc(it.name)}"></label>
+        <label>Category<select name="category">${Object.keys(CATEGORIES).map(c => `<option ${it.category === c ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
+        <label>Weight each (${weightUnit(U())})<input name="weight" type="number" step="any" min="0" value="${weightToDisplay(it.weightKg || 0, U())}"></label>
+        <label>Qty owned<input name="qtyOwned" type="number" min="0" value="${it.qtyOwned ?? 1}"></label>
+      </div>
+      <fieldset><legend>Size</legend><div class="grid4">
+        <label>L (cm)<input name="lengthCm" type="number" step="any" min="0" value="${it.lengthCm || ''}"></label>
+        <label>W (cm)<input name="widthCm" type="number" step="any" min="0" value="${it.widthCm || ''}"></label>
+        <label>H (cm)<input name="heightCm" type="number" step="any" min="0" value="${it.heightCm || ''}"></label>
+        <label>Packed vol (L)<input name="volumeL" type="number" step="any" min="0" value="${it.volumeL || ''}" placeholder="auto"></label>
+      </div></fieldset>
+      <fieldset class="container-only"><legend>🎒 Container specs</legend><div class="grid2">
+        <label>Capacity (L)<input name="capacityL" type="number" step="any" min="0" value="${it.capacityL || ''}"></label>
+        <label>Max load (kg)<input name="maxLoadKg" type="number" step="any" min="0" value="${it.maxLoadKg || ''}"></label>
+      </div></fieldset>
+      <fieldset><legend>Planning rules</legend>
+        <label class="check"><input type="checkbox" name="perPerson" ${it.perPerson ? 'checked' : ''}> One per person</label>
+        <label class="check"><input type="checkbox" name="consumable" ${it.consumable ? 'checked' : ''}> Consumable, used at
+          <input name="perPersonDay" type="number" step="any" min="0" value="${it.perPersonDay || ''}" class="mini"> per person per day</label>
+      </fieldset>
+      <label>Use cases <small class="muted">(comma separated; tap to add)</small><input name="useCases" value="${esc(splitList(it.useCases).join(', '))}"></label>
+      <div class="chips small-chips">${tagPool.slice(0, 40).map(t => `<button type="button" class="chip" data-addtag="${esc(t)}">${esc(t)}</button>`).join('')}</div>
+      <label>Environments</label>
+      <div class="chips small-chips">${['all', ...ENVIRONMENTS].map(e => `<button type="button" class="chip ${splitList(it.environments).includes(e) ? 'on' : ''}" data-envtoggle="${e}">${ENV_ICONS[e] || '🌐'} ${e}</button>`).join('')}</div>
+      <label>Notes / details<textarea name="notes" rows="2">${esc(it.notes || '')}</textarea></label>
+      <div class="row end">
+        ${existing ? '<button type="button" class="btn ghost danger-text" id="delItem">Delete</button><span class="grow"></span>' : ''}
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button class="btn primary">${existing ? 'Save changes' : 'Add to inventory'}</button>
+      </div>
+    </form>`, {
+    wide: true,
+    onMount: (m, close) => {
+      const form = $('#itemForm', m);
+      const envs = new Set(splitList(it.environments));
+      const syncContainer = () => m.querySelector('.container-only').hidden = form.category.value !== 'Container';
+      form.category.onchange = () => { syncContainer(); if (!form.icon.value) form.icon.placeholder = catInfo(form.category.value).icon; };
+      syncContainer();
+      form.icon.placeholder = catInfo(form.category.value).icon;
+      m.addEventListener('click', e => {
+        const em = e.target.closest('[data-emoji]'); if (em) form.icon.value = em.dataset.emoji;
+        const t = e.target.closest('[data-addtag]');
+        if (t) { const cur = splitList(form.useCases.value); if (!cur.includes(t.dataset.addtag)) form.useCases.value = [...cur, t.dataset.addtag].join(', '); }
+        const ev = e.target.closest('[data-envtoggle]');
+        if (ev) { const k = ev.dataset.envtoggle; envs.has(k) ? envs.delete(k) : envs.add(k); ev.classList.toggle('on', envs.has(k)); }
+      });
+      const del = $('#delItem', m);
+      if (del) del.onclick = async () => {
+        close();
+        if (await confirmDialog(`Delete "${it.name}" from the inventory?`, 'Delete')) {
+          state.items = state.items.filter(x => x.id !== it.id);
+          state.plan.packed = state.plan.packed.filter(p => p.itemId !== it.id);
+          state.plan.containers = state.plan.containers.filter(c => c.itemId !== it.id);
+          commit(); toast('Item deleted');
+        }
+      };
+      form.onsubmit = e => {
+        e.preventDefault();
+        const f = new FormData(form);
+        const category = f.get('category');
+        upsertItem({
+          id: existing?.id || nextItemId(category), name: String(f.get('name')).trim(), category,
+          icon: String(f.get('icon')).trim() || catInfo(category).icon,
+          weightKg: round(weightFromDisplay(f.get('weight'), U()), 4), qtyOwned: num(f.get('qtyOwned'), 1),
+          lengthCm: num(f.get('lengthCm')), widthCm: num(f.get('widthCm')), heightCm: num(f.get('heightCm')), volumeL: num(f.get('volumeL')),
+          capacityL: category === 'Container' ? num(f.get('capacityL')) : 0, maxLoadKg: category === 'Container' ? num(f.get('maxLoadKg')) : 0,
+          perPerson: !!f.get('perPerson'), consumable: !!f.get('consumable'), perPersonDay: num(f.get('perPersonDay')),
+          useCases: splitList(f.get('useCases')), environments: [...envs], notes: String(f.get('notes')).trim(),
+        });
+        close(); toast(existing ? 'Saved' : 'Added to inventory', 'ok');
+      };
+    },
+  });
+}
+
+// ---------- Workbook ----------
+async function wbOpen() {
+  try {
+    const res = await excel.openWorkbook();
+    if (!res) return;
+    loadWorkbookData(res);
+  } catch (e) { toast(`Could not open workbook: ${e.message}`, 'bad', 7000); }
+}
+
+async function loadWorkbookData(res) {
+  state.items = res.items; state.trips = res.trips;
+  Object.assign(state.workbook, { name: res.name, connected: true, dirty: false, lastSaved: new Date().toISOString() });
+  pendingHandle = null;
+  commit({ dirty: false });
+  toast(`Loaded ${res.items.length} items and ${res.trips.length} trips from ${res.name}`, 'ok');
+  if (!res.items.length && await confirmDialog('This workbook has no items yet. Add the sample field gear to get started?', 'Add sample gear')) {
+    state.items = structuredClone(SAMPLE_ITEMS); commit(); wbSave();
+  }
+}
+
+async function wbNew() {
+  try {
+    if (!state.items.length) state.items = structuredClone(SAMPLE_ITEMS);
+    const name = await excel.createWorkbook(state.items, state.trips);
+    if (!name) return;
+    Object.assign(state.workbook, { name, connected: excel.canSaveInPlace, dirty: false, lastSaved: new Date().toISOString() });
+    commit({ dirty: false });
+    toast(excel.canSaveInPlace ? `Created ${name}` : `Downloaded ${name}. Open it later to keep working.`, 'ok');
+  } catch (e) { toast(`Could not create workbook: ${e.message}`, 'bad', 7000); }
+}
+
+let saving = false;
+async function wbSave({ quiet = false } = {}) {
+  if (saving) return; saving = true;
+  try {
+    if (!excel.currentHandle() && !quiet && excel.canSaveInPlace && !state.workbook.connected) { saving = false; return wbNew(); }
+    const how = await excel.saveWorkbook(state.items, state.trips, state.workbook.name || 'fieldpack-database.xlsx');
+    state.workbook.dirty = false; state.workbook.lastSaved = new Date().toISOString();
+    commit({ dirty: false });
+    if (!quiet) toast(how === 'saved' ? `Saved to ${state.workbook.name} 📗` : 'Downloaded updated workbook', 'ok');
+  } catch (e) { toast(e.message, 'bad', 8000); } finally { saving = false; }
+}
+const autosave = debounce(() => {
+  if (settings.autosave && state.workbook.connected && state.workbook.dirty && excel.currentHandle()) wbSave({ quiet: true });
+}, 1500);
+
+function welcome() {
+  openModal(`<div class="welcome">
+    <div class="big-emoji">🏔️🎒🤖</div>
+    <h2>Welcome to FieldPack</h2>
+    <p>Plan field trips from your real gear. Your inventory and trip history live in an Excel workbook, and your AI of choice does the heavy analysis.</p>
+    <div class="welcome-actions">
+      <button class="btn primary big" data-w="open">📂 Open my Excel database</button>
+      <button class="btn accent big" data-w="new">✨ Create a new database (with sample gear)</button>
+      <button class="btn ghost" data-w="try">Just explore with sample data</button>
+    </div></div>`, {
+    onMount: (m, close) => m.addEventListener('click', e => {
+      const w = e.target.closest('[data-w]')?.dataset.w; if (!w) return;
+      close();
+      if (w === 'open') wbOpen();
+      if (w === 'new') { state.items = structuredClone(SAMPLE_ITEMS); wbNew(); }
+      if (w === 'try') { state.items = structuredClone(SAMPLE_ITEMS); commit(); toast('Loaded sample gear. Try the Quick Planner!', 'ok'); }
+    }),
+  });
+}
+
+// =====================================================================
+// Event delegation
+// =====================================================================
+function onClick(e) {
+  const t = e.target.closest('button, [data-action], .pill.clickable, .inv-card');
+  if (!t) return;
+  const d = t.dataset;
+
+  if (t.id === 'wbStatus' && pendingHandle) {
+    excel.reconnect(pendingHandle).then(loadWorkbookData).catch(err => toast(err.message, 'bad'));
+    return;
+  }
+  if (d.view) return setView(d.view);
+  if (d.chip) {
+    const arr = state.plan.request[d.chip];
+    const i = arr.indexOf(d.val); i >= 0 ? arr.splice(i, 1) : arr.push(d.val);
+    t.classList.toggle('on', i < 0);
+    commit({ dirty: false, render: false }); $('#tripPreview').innerHTML = tripPreview(); return;
+  }
+  if (d.step) {
+    const r = state.plan.request; setRequest(d.step, Math.max(1, Math.min(99, r[d.step] + num(d.d))));
+    return render();
+  }
+  if (d.transport) { setRequest('transport', d.transport); return render(); }
+  if (d.shelfAdd) { addToPlan(d.shelfAdd); return commit({ dirty: false }); }
+  if (d.tile) {
+    const el = t.closest('.tile'); const id = el.dataset.item, from = el.dataset.from === 'loose' ? null : el.dataset.from;
+    const p = state.plan.packed.find(x => x.itemId === id && (x.container ?? null) === from);
+    if (!p) return;
+    if (d.tile === 'inc') p.qty++;
+    if (d.tile === 'dec') p.qty--;
+    if (d.tile === 'rm' || p.qty <= 0) state.plan.packed = state.plan.packed.filter(x => x !== p);
+    return commit({ dirty: false });
+  }
+  if (d.removeContainer) {
+    state.plan.containers = state.plan.containers.filter(c => c.uid !== d.removeContainer);
+    state.plan.packed.forEach(p => { if (p.container === d.removeContainer) p.container = null; });
+    return commit({ dirty: false });
+  }
+  if (d.edit) return itemModal(itemById(d.edit));
+  if (d.invcat !== undefined) { state.invFilter = { ...(state.invFilter || {}), cat: d.invcat }; return render(); }
+  if (d.provider) {
+    settings.ai.keys ||= {};
+    settings.ai.provider = d.provider; settings.ai.model = ''; saveSettings(); return render();
+  }
+  if (d.missing !== undefined) {
+    const m = state.plan.ai.suggestion.missing[+d.missing];
+    return itemModal(null, { name: m.name, weightKg: num(m.estWeightKg), notes: m.reason || '', category: 'Other' });
+  }
+  if (d.loadTrip || d.dupTrip) {
+    const tr = state.trips.find(x => x.id === (d.loadTrip || d.dupTrip));
+    state.plan = planFromTrip(tr, !!d.dupTrip); state.view = d.dupTrip ? 'planner' : 'board';
+    commit({ dirty: false }); return toast(d.dupTrip ? 'Duplicated. Adjust the requirements.' : `Opened ${tr.name}`, 'ok');
+  }
+  if (d.viewAi) {
+    const tr = state.trips.find(x => x.id === d.viewAi);
+    return openModal(`<h2>🤖 ${esc(tr.name)}</h2><p class="muted small">${esc(tr.aiProvider)} · ${esc(tr.aiModel)}</p><div class="md">${markdown(stripJson(tr.aiAnalysis))}</div>`, { wide: true });
+  }
+  if (d.delTrip) {
+    confirmDialog('Delete this trip from history? (It will be removed from the Trips sheet on next save.)', 'Delete').then(ok => {
+      if (ok) { state.trips = state.trips.filter(x => x.id !== d.delTrip); commit(); }
+    });
+    return;
+  }
+
+  switch (d.action) {
+    case 'go-board': return setView('board');
+    case 'go-planner': return setView('planner');
+    case 'go-settings': return setView('settings');
+    case 'autopack': if (runAutopack()) setView('board'); return;
+    case 'autopack-ai': if (runAutopack()) { setView('board'); aiAnalyze(); } return;
+    case 'repack': state.plan = binPack(state.plan); commit({ dirty: false }); return toast('Re-distributed items across containers', 'ok');
+    case 'clear-board': return confirmDialog('Remove all containers and items from the board?', 'Clear').then(ok => {
+      if (ok) { state.plan.containers = []; state.plan.packed = []; commit({ dirty: false }); }
+    });
+    case 'new-trip': return confirmDialog('Start a new trip? The current board will be cleared (saved trips stay in history).', 'New trip').then(ok => {
+      if (ok) { state.plan = emptyPlan(); commit({ dirty: false }); }
+    });
+    case 'copy-list': {
+      const r = state.plan.request, s = planStats();
+      const text = `${r.name || 'Trip'}: ${r.destination} (${r.days} days, ${r.people} people)\nTotal: ${W(s.totalKg)}\n\n${packingSummary().split('\n').map(l => `☐ ${l}`).join('\n')}`;
+      navigator.clipboard?.writeText(text).then(() => toast('Checklist copied to clipboard 📋', 'ok'), () => toast('Clipboard unavailable', 'warn'));
+      return;
+    }
+    case 'save-trip': {
+      const rec = tripRecord();
+      const i = state.trips.findIndex(x => x.id === rec.id);
+      if (i >= 0) state.trips[i] = rec; else state.trips.push(rec);
+      commit();
+      toast(`Trip saved to history${state.workbook.connected ? ' and the Trips sheet' : ''}`, 'ok');
+      if (state.workbook.connected) wbSave({ quiet: true });
+      return;
+    }
+    case 'ai-analyze': return aiAnalyze();
+    case 'ai-apply': return aiApply();
+    case 'new-item': return itemModal(null);
+    case 'ai-save': case 'ai-test': {
+      settings.ai.model = $('#aiModel').value.trim();
+      settings.ai.keys ||= {};
+      settings.ai.keys[settings.ai.provider] = $('#aiKey').value.trim();
+      if ($('#aiBase')) settings.ai.baseUrl = $('#aiBase').value.trim();
+      saveSettings();
+      if (d.action === 'ai-save') return toast('AI settings saved', 'ok');
+      const out = $('#aiTestOut'); out.textContent = 'Testing…';
+      testConnection().then(r => { out.textContent = `✅ Connected: "${r.trim().slice(0, 40)}"`; })
+        .catch(err => { out.textContent = `❌ ${err.message}`; });
+      return;
+    }
+    case 'wb-open': return wbOpen();
+    case 'wb-new': return wbNew();
+    case 'wb-save': return wbSave();
+    case 'wb-disconnect': excel.disconnect(); Object.assign(state.workbook, { connected: false }); return commit({ dirty: false });
+    case 'load-sample': {
+      const ids = new Set(state.items.map(i => i.id));
+      const add = SAMPLE_ITEMS.filter(i => !ids.has(i.id));
+      state.items.push(...structuredClone(add)); commit(); return toast(`Added ${add.length} sample items`, 'ok');
+    }
+    case 'reset-all': return confirmDialog('Clear all data stored in this browser? Your Excel file is not touched.', 'Reset').then(ok => {
+      if (ok) { localStorage.clear(); excel.disconnect(); location.reload(); }
+    });
+  }
+}
+
+function onInput(e) {
+  const el = e.target;
+  const key = el.dataset.req;
+  if (!key) return;
+  let v = el.value;
+  if (['days', 'maxVolumeL'].includes(key)) v = num(v);
+  if (key === 'maxWeightKg') v = weightFromDisplay(v, U());
+  if (key === 'days') $('#daysOut').textContent = v;
+  state.plan.request[key] = v;
+  commit({ dirty: false, render: false });
+  $('#tripPreview').innerHTML = tripPreview();
+}
+
+// ---------- Drag & drop ----------
+let drag = null;
+function onDragStart(e) {
+  const el = e.target.closest('[data-drag]');
+  if (!el) return;
+  drag = { kind: el.dataset.drag, item: el.dataset.item, from: el.dataset.from };
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', drag.item);
+  el.classList.add('dragging');
+  document.body.classList.add('is-dragging');
+}
+function onDragOver(e) {
+  const z = e.target.closest('[data-drop]');
+  if (!z || !drag) return;
+  e.preventDefault();
+  $$('.drop-over').forEach(x => x !== z && x.classList.remove('drop-over'));
+  z.classList.add('drop-over');
+}
+function onDrop(e) {
+  const z = e.target.closest('[data-drop]');
+  document.body.classList.remove('is-dragging');
+  $$('.drop-over').forEach(x => x.classList.remove('drop-over'));
+  if (!z || !drag) return;
+  e.preventDefault();
+  const to = z.dataset.drop;
+  if (drag.kind === 'shelf') { if (to !== 'shelf') addToPlan(drag.item, to === 'loose' ? null : to); }
+  else movePacked(drag.item, drag.from, to);
+  drag = null;
+  commit({ dirty: false });
+}
+function onDragEnd() { drag = null; document.body.classList.remove('is-dragging'); $$('.dragging,.drop-over').forEach(x => x.classList.remove('dragging', 'drop-over')); }
+
+// =====================================================================
+// Boot
+// =====================================================================
+async function boot() {
+  const had = restore();
+  subscribe(render);
+  subscribe(autosave);
+  document.addEventListener('click', onClick);
+  $('#view').addEventListener('input', onInput);
+  $('#view').addEventListener('dragstart', onDragStart);
+  $('#view').addEventListener('dragover', onDragOver);
+  $('#view').addEventListener('drop', onDrop);
+  $('#view').addEventListener('dragend', onDragEnd);
+  $('#btnOpen').onclick = wbOpen;
+  $('#btnNew').onclick = wbNew;
+  $('#btnSave').onclick = () => wbSave();
+  document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); wbSave(); } });
+  window.addEventListener('beforeunload', e => { if (state.workbook.dirty && state.workbook.connected) { e.preventDefault(); e.returnValue = ''; } });
+
+  if (typeof XLSX === 'undefined') toast('Excel library failed to load. Check your internet connection.', 'bad', 10000);
+  pendingHandle = await excel.storedHandle();
+  if (pendingHandle && (await pendingHandle.queryPermission?.({ mode: 'readwrite' })) === 'granted') {
+    try { loadWorkbookData(await excel.reconnect(pendingHandle)); } catch { /* user can click to reconnect */ }
+  }
+  render();
+  if (!had && !state.items.length) welcome();
+}
+
+boot();
