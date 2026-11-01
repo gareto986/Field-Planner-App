@@ -6,7 +6,8 @@
 // Pages are read as text via Jina Reader (keyless). When a page has no specs but
 // links to the product (search results, category pages), the best-matching links
 // are followed one hop.
-import { settings } from './store.js?v=202611012301';
+import { CONFIG } from './config.js?v=202611012304';
+import { settings } from './store.js?v=202611012304';
 
 const TIMEOUT_MS = 20000;
 
@@ -24,9 +25,23 @@ export const SEARCH_PROVIDERS = {
 export const searchKey = () => (settings.search?.key || '').trim();
 export const searchProvider = () => (searchKey() ? settings.search?.provider || 'tavily' : '');
 
+// The site's relay (config.js) can search with its own secret Serper/Tavily key.
+let relaySearchOff = false;
+export const relaySearchAvailable = () => !!(CONFIG.specProxyUrl || '').trim() && !relaySearchOff;
+async function relaySearch(query, count) {
+  const res = await fetchWithTimeout(new URL('search', CONFIG.specProxyUrl).href, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query, count }) }, 25000);
+  const d = await res.json().catch(() => ({}));
+  if (res.status === 501 || res.status === 404) { relaySearchOff = true; return null; } // relay has no search set up
+  if (!res.ok) throw new Error(d.error || `relay search HTTP ${res.status}`);
+  return (d.results || []).map(r => ({ url: r.url, title: r.title || r.url, snippet: r.snippet || '', content: r.content || '' }));
+}
+
 /** Search the web. Returns [{url, title, snippet, content?}] or [] if nothing is available. */
 export async function searchWeb(query, count = 5) {
   const key = searchKey(), prov = searchProvider();
+  if (!key && relaySearchAvailable()) {
+    try { const r = await relaySearch(query, count); if (r) return r; } catch (e) { console.warn('relay search failed, falling back', e); }
+  }
   try {
     if (prov === 'tavily') {
       const res = await fetchWithTimeout('https://api.tavily.com/search', { method: 'POST', headers: { 'content-type': 'application/json', Authorization: `Bearer ${key}` },
@@ -174,7 +189,7 @@ export async function gatherEvidence(items, { pagesPerItem = 2, charsPerPage = 2
     // 2) web search (search key, else Marginalia)
     const q = [it.brand, it.model || it.name, 'specifications weight dimensions'].filter(Boolean).join(' ');
     const results = await searchWeb(q);
-    tried.push(`${results.length ? '✓' : '✗'} search: "${q}" (${results.length} results${searchProvider() ? `, ${SEARCH_PROVIDERS[searchProvider()].label}` : ''})`);
+    tried.push(`${results.length ? '✓' : '✗'} search: "${q}" (${results.length} results${searchProvider() ? `, ${SEARCH_PROVIDERS[searchProvider()].label}` : relaySearchAvailable() ? ', site search relay' : ''})`);
     const ranked = results.map(r => ({ ...r, s: matchScore(`${r.title} ${r.url} ${r.snippet}`, tokens) })).sort((a, b) => b.s - a.s).slice(0, 3);
     await Promise.all(ranked.map(async r => {
       if (r.content && r.content.length > 300) { tried.push(`✓ ${r.url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 70)} (from search)`); consider({ url: r.url, title: r.title, text: r.content }, true); }

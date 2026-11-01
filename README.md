@@ -111,13 +111,14 @@ Excel Online access uses Microsoft sign-in, which needs a free app registration 
 1. Create a free account at [dash.cloudflare.com](https://dash.cloudflare.com).
 2. **Workers & Pages → Create → Create Worker** (start from "Hello World"), name it e.g. `fieldpack-specs`, **Deploy**.
 3. **Edit code**, replace everything with the contents of [`worker/spec-proxy.js`](worker/spec-proxy.js), **Deploy**.
-4. Worker **Settings → Variables and Secrets → Add**:
-   - `GEMINI_API_KEY`: type **Secret**, value = your key from [Google AI Studio](https://aistudio.google.com/apikey)
+4. Worker **Settings → Variables and Secrets → Add** one or both:
+   - `SERPER_API_KEY`: type **Secret**, a free key from [serper.dev](https://serper.dev) (Google results, free tier, no card). Gives everyone real web search for the free lookup. (Or `TAVILY_API_KEY` from [tavily.com](https://app.tavily.com).)
+   - `GEMINI_API_KEY`: type **Secret**, value = your key from [Google AI Studio](https://aistudio.google.com/apikey). Gives full Gemini + Google Search spec checks, but **Google Search grounding needs billing enabled** on that Google project (it's not part of Gemini's free tier). Without billing the app quietly falls back to the search-based lookup.
    - (optional) `GEMINI_MODEL`: type **Text**, to pin a model; otherwise the newest available Gemini Flash is picked automatically
    - `ALLOWED_ORIGINS`: type **Text**, value = `https://gareto986.github.io` (add `,http://localhost:8080` to also use it locally)
 5. Copy the Worker's URL (e.g. `https://fieldpack-specs.<you>.workers.dev`) into `specProxyUrl` in [`js/config.js`](js/config.js) and push.
 
-The relay only performs spec checks (fixed prompt, max 8 items, short names), only answers your site, and only receives gear names, brands and models, never trip details or site locations. Cloudflare's free plan covers 100,000 requests/day; Gemini's free tier has daily limits (enable billing in Google AI Studio for heavier use).
+The relay only performs spec checks and spec searches (fixed prompt, max 8 items, short names and queries), only answers your site, and only receives gear names, brands and models, never trip details or site locations. Cloudflare's free plan covers 100,000 requests/day; Gemini's free tier has daily limits (enable billing in Google AI Studio for heavier use).
 
 ## Publish it as a web app (GitHub Pages)
 

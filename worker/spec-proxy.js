@@ -5,8 +5,15 @@
 // The browser never sees the key. The relay only does spec checks (fixed
 // prompt, small inputs), so it can't be used as a general-purpose AI proxy.
 //
+// Two features (use either or both):
+//   POST /        spec check with Gemini + Google Search grounding (needs billing on
+//                 the Google project: grounding isn't part of Gemini's free tier)
+//   POST /search  web search for FieldPack's free lookup, using a Serper (Google
+//                 results) or Tavily key, both of which have free tiers
+//
 // Settings (Cloudflare dashboard → your Worker → Settings → Variables and Secrets):
-//   GEMINI_API_KEY   (Secret)  your Gemini API key from https://aistudio.google.com/apikey
+//   GEMINI_API_KEY   (Secret, optional) your Gemini API key from https://aistudio.google.com/apikey
+//   SERPER_API_KEY   (Secret, optional) from https://serper.dev  (or TAVILY_API_KEY from https://app.tavily.com)
 //   ALLOWED_ORIGINS  (Text)    comma-separated sites allowed to use it, e.g. https://gareto986.github.io
 //   GEMINI_MODEL     (Text, optional) pin a model; by default the newest available Gemini Flash is used
 
@@ -45,11 +52,29 @@ async function callGemini(model, key, payload) {
   return { res, d: await res.json().catch(() => ({})) };
 }
 
+/** Web search via the relay's own Serper or Tavily key (keys stay on Cloudflare). */
+async function search(env, query, count) {
+  if (!query) return [400, { error: 'No query' }];
+  if (env.SERPER_API_KEY) {
+    const res = await fetch('https://google.serper.dev/search', { method: 'POST', headers: { 'content-type': 'application/json', 'X-API-KEY': env.SERPER_API_KEY }, body: JSON.stringify({ q: query, num: count }) });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) return [502, { error: d.message || `Serper error ${res.status}` }];
+    return [200, { provider: 'serper', results: (d.organic || []).slice(0, count).map(r => ({ url: r.link, title: r.title || r.link, snippet: r.snippet || '' })) }];
+  }
+  if (env.TAVILY_API_KEY) {
+    const res = await fetch('https://api.tavily.com/search', { method: 'POST', headers: { 'content-type': 'application/json', Authorization: `Bearer ${env.TAVILY_API_KEY}` }, body: JSON.stringify({ query, max_results: count, include_raw_content: true }) });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) return [502, { error: d.detail?.error || d.message || `Tavily error ${res.status}` }];
+    return [200, { provider: 'tavily', results: (d.results || []).slice(0, count).map(r => ({ url: r.url, title: r.title || r.url, snippet: r.content || '', content: String(r.raw_content || '').slice(0, 60000) })) }];
+  }
+  return [501, { error: 'Search is not set up on this relay.', code: 'no_search' }];
+}
+
 function cors(origin, allowed) {
   const ok = allowed.includes(origin);
   return {
     'Access-Control-Allow-Origin': ok ? origin : 'null',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'content-type',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
@@ -65,11 +90,18 @@ export default {
 
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     if (!allowed.includes(origin)) return reply(403, { error: 'This site is not allowed to use this relay (check ALLOWED_ORIGINS).' });
+    const path = new URL(request.url).pathname.replace(/\/+$/, '');
+    if (request.method === 'GET' && path === '/status') {
+      return reply(200, { verify: !!env.GEMINI_API_KEY, search: !!(env.SERPER_API_KEY || env.TAVILY_API_KEY) });
+    }
     if (request.method !== 'POST') return reply(405, { error: 'POST only' });
-    if (!env.GEMINI_API_KEY) return reply(500, { error: 'The relay has no GEMINI_API_KEY secret yet.' });
 
     let body;
     try { body = await request.json(); } catch { return reply(400, { error: 'Invalid JSON' }); }
+
+    if (path === '/search') return reply(...await search(env, clip(body.query, 200), Math.min(5, Math.max(1, num(body.count) || 5))));
+
+    if (!env.GEMINI_API_KEY) return reply(501, { error: 'Google Search spec checks are not set up on this relay.', code: 'no_verify' });
     const items = (Array.isArray(body.items) ? body.items : []).slice(0, MAX_ITEMS).map((it, i) => ({
       index: i, name: clip(it.name, 120), brand: clip(it.brand, 60), model: clip(it.model, 60), category: clip(it.category, 30),
       weightKg: num(it.weightKg), lengthCm: num(it.lengthCm), widthCm: num(it.widthCm), heightCm: num(it.heightCm), capacityL: num(it.capacityL),
@@ -89,7 +121,13 @@ export default {
       model = await newestFlash(env.GEMINI_API_KEY);
       ({ res, d } = await callGemini(model, env.GEMINI_API_KEY, payload));
     }
-    if (!res.ok) return reply(502, { error: d.error?.message || `Gemini error ${res.status}` });
+    if (!res.ok) {
+      const msg = d.error?.message || `Gemini error ${res.status}`;
+      const quota = res.status === 429 || /quota|billing/i.test(msg);
+      return reply(quota ? 429 : 502, quota
+        ? { error: 'Google Search spec checks need billing enabled on the Gemini API project (grounding is not in the free tier), or the quota is used up.', code: 'quota', detail: msg }
+        : { error: msg });
+    }
     const cand = d.candidates?.[0] || {};
     const text = (cand.content?.parts || []).map(p => p.text || '').join('');
     const sources = (cand.groundingMetadata?.groundingChunks || []).map(g => g.web).filter(Boolean).map(w => ({ url: w.uri, title: w.title || w.uri }));

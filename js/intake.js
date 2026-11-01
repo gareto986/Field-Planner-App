@@ -1,13 +1,13 @@
 // "Add gear with AI": describe items in plain words; the AI drafts inventory
 // records and asks short follow-up questions when details that matter for
 // planning (quantity, weight, size, capacity) are missing or ambiguous.
-import { state, settings, CATEGORIES, ACTIVITIES, ENVIRONMENTS, catInfo } from './store.js?v=202611012301';
-import { chat, chatWithWebSearch, nativeVerifier, PROVIDERS, aiReady, aiConfig, isLocal } from './ai.js?v=202611012301';
-import { $, esc, num, round, openModal, toast, splitList, weightToDisplay, weightFromDisplay, weightUnit, fmtDims, fmtVolSmall, lenToDisplay, lenUnit } from './utils.js?v=202611012301';
-import { gatherEvidence, searchProvider, SEARCH_PROVIDERS } from './websearch.js?v=202611012301';
-import { CONFIG } from './config.js?v=202611012301';
-import { saveSettings } from './store.js?v=202611012301';
-import { loadedModel } from './local-ai.js?v=202611012301';
+import { state, settings, CATEGORIES, ACTIVITIES, ENVIRONMENTS, catInfo } from './store.js?v=202611012304';
+import { chat, chatWithWebSearch, nativeVerifier, PROVIDERS, aiReady, aiConfig, isLocal } from './ai.js?v=202611012304';
+import { $, esc, num, round, openModal, toast, splitList, weightToDisplay, weightFromDisplay, weightUnit, fmtDims, fmtVolSmall, lenToDisplay, lenUnit } from './utils.js?v=202611012304';
+import { gatherEvidence, searchProvider, SEARCH_PROVIDERS } from './websearch.js?v=202611012304';
+import { CONFIG } from './config.js?v=202611012304';
+import { saveSettings } from './store.js?v=202611012304';
+import { loadedModel } from './local-ai.js?v=202611012304';
 
 const SYSTEM = () => `You are FieldPack's inventory assistant for an archaeology and field-research team. Turn the user's plain-language description of gear into inventory records for a trip-planning database.
 
@@ -52,6 +52,8 @@ function clean(it) {
     brand: String(it.brand || '').trim().slice(0, 60), model: String(it.model || '').trim().slice(0, 60), domain: String(it.domain || '').trim().slice(0, 80),
   };
 }
+
+let relayVerifyOffUntil = 0;
 
 const VERIFY_SYSTEM = native => `You check gear specifications for a field-research inventory. For each item, find the manufacturer's published specs (prefer the manufacturer's page, then major retailers; avoid forums and guesses). Match the exact model and size; if a source is for a different variant, don't use it.
 Report numbers per single unit in metric: weightKg (convert from lb/oz/g), external dimensions lengthCm, widthCm, heightCm (convert from inches), and capacityL for bags/containers (convert from cubic inches or gallons). Use 0 for anything you could not find.
@@ -144,7 +146,7 @@ export function openIntake({ initial = '', onAdd, goSettings, confirmLocal }) {
     try {
       let text, allowed = null;
       const nv = nativeVerifier();
-      const relay = !nv && settings.ai.specMode !== 'free' && (CONFIG.specProxyUrl || '').trim();
+      const relay = !nv && settings.ai.specMode !== 'free' && Date.now() > relayVerifyOffUntil && (CONFIG.specProxyUrl || '').trim();
       let native = false;
       if (relay) {
         verifying = 'Searching Google for manufacturer specs…'; view();
@@ -152,13 +154,17 @@ export function openIntake({ initial = '', onAdd, goSettings, confirmLocal }) {
           const res = await fetch(relay, { method: 'POST', headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ units, items: targets.map(({ d }) => ({ name: d.name, brand: d.brand, model: d.model, category: d.category, weightKg: d.weightKg, lengthCm: d.lengthCm, widthCm: d.widthCm, heightCm: d.heightCm, capacityL: d.capacityL })) }) });
           const out = await res.json().catch(() => ({}));
-          if (!res.ok) throw new Error(out.error || `relay HTTP ${res.status}`);
+          if (!res.ok) {
+            // Not set up, or Google quota/billing: stop asking for a while and use the free lookup quietly.
+            if (out.code === 'no_verify' || out.code === 'quota' || res.status === 501 || res.status === 429) relayVerifyOffUntil = Date.now() + 30 * 60 * 1000;
+            throw Object.assign(new Error(out.error || `relay HTTP ${res.status}`), { quiet: out.code === 'no_verify' });
+          }
           // The relay numbers items 0..n in the order sent; map back to draft rows.
           const j0 = extractJson(out.text);
           if (j0?.items) j0.items.forEach(r => { r.index = targets[+r.index]?.i ?? -1; });
           text = JSON.stringify(j0 || {});
           native = true;
-        } catch (e) { console.warn('spec relay failed, using free lookup', e); toast(`Google spec search is unavailable right now (${e.message}); trying the free lookup.`, 'warn', 6000); }
+        } catch (e) { console.warn('spec relay failed, using free lookup', e); if (!e.quiet) toast('Google spec search is unavailable right now; using the free lookup instead.', 'warn', 5000); }
       }
       if (nv) {
         verifying = `Searching the web with ${nv.provider === 'gemini' ? 'Gemini (Google Search)' : 'Claude web search'}…`; view();
