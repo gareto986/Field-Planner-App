@@ -1,18 +1,18 @@
 import { state, settings, commit, persist, saveSettings, restore, subscribe, CATEGORIES, catInfo, ENVIRONMENTS, ACTIVITIES, ACTIVITY_GROUPS,
-  TRANSPORT, emptyPlan, defaultRequest, itemById, nextItemId } from './store.js?v=202611012336';
+  TRANSPORT, emptyPlan, defaultRequest, itemById, nextItemId } from './store.js?v=202611012337';
 import { $, $$, esc, uid, num, round, fmtWeight, fmtVolume, fmtVolSmall, fmtVolPair, weightToDisplay, weightFromDisplay, weightUnit,
   lenToDisplay, lenFromDisplay, lenUnit, volSmallToDisplay, volSmallFromDisplay, volSmallUnit, volBigToDisplay, volBigFromDisplay, volBigUnit, splitList,
-  toast, openModal, confirmDialog, markdown, debounce } from './utils.js?v=202611012336';
-import { autoPack, binPack, planStats, packingSummary, itemVolume, isContainer, isWorn, limitsFor, suggestedQty, relevance } from './planner.js?v=202611012336';
-import * as excel from './excel.js?v=202611012336';
-import * as cloud from './onedrive.js?v=202611012336';
-import { LOCAL_MODELS, hasWebGPU, gpuStatus, isModelCached, loadLocalModel, onLocalProgress, loadedModel } from './local-ai.js?v=202611012336';
-import { PROVIDERS, fetchFreeModels, fetchOvhModels, servedModel, isLocal, aiConfig, aiReady, chat, testConnection, systemPrompt, buildTripBrief, parseSuggestion, stripJson, iconFor } from './ai.js?v=202611012336';
-import { SAMPLE_ITEMS } from './sample-data.js?v=202611012336';
-import { pickerHtml, wirePicker, suggestIcon } from './emoji.js?v=202611012336';
-import { CONFIG } from './config.js?v=202611012336';
-import { SEARCH_PROVIDERS, searchWeb } from './websearch.js?v=202611012336';
-import { openIntake } from './intake.js?v=202611012336';
+  toast, openModal, confirmDialog, markdown, debounce } from './utils.js?v=202611012337';
+import { autoPack, binPack, planStats, packingSummary, itemVolume, isContainer, isWorn, limitsFor, suggestedQty, relevance } from './planner.js?v=202611012337';
+import * as excel from './excel.js?v=202611012337';
+import * as cloud from './onedrive.js?v=202611012337';
+import { LOCAL_MODELS, hasWebGPU, gpuStatus, isModelCached, loadLocalModel, onLocalProgress, loadedModel } from './local-ai.js?v=202611012337';
+import { PROVIDERS, fetchFreeModels, fetchOvhModels, servedModel, isLocal, aiConfig, aiReady, chat, testConnection, systemPrompt, buildTripBrief, parseSuggestion, stripJson, iconFor } from './ai.js?v=202611012337';
+import { SAMPLE_ITEMS } from './sample-data.js?v=202611012337';
+import { pickerHtml, wirePicker, suggestIcon } from './emoji.js?v=202611012337';
+import { CONFIG } from './config.js?v=202611012337';
+import { SEARCH_PROVIDERS, searchWeb } from './websearch.js?v=202611012337';
+import { openIntake } from './intake.js?v=202611012337';
 
 const U = () => settings.units;
 const W = kg => fmtWeight(kg, U());

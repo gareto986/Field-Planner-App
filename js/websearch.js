@@ -6,8 +6,8 @@
 // Pages are read as text via Jina Reader (keyless). When a page has no specs but
 // links to the product (search results, category pages), the best-matching links
 // are followed one hop.
-import { CONFIG } from './config.js?v=202611012336';
-import { settings } from './store.js?v=202611012336';
+import { CONFIG } from './config.js?v=202611012337';
+import { settings } from './store.js?v=202611012337';
 
 const TIMEOUT_MS = 20000;
 

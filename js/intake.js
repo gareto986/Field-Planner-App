@@ -1,13 +1,13 @@
 // "Add gear with AI": describe items in plain words; the AI drafts inventory
 // records and asks short follow-up questions when details that matter for
 // planning (quantity, weight, size, capacity) are missing or ambiguous.
-import { state, settings, CATEGORIES, ACTIVITIES, ENVIRONMENTS, catInfo } from './store.js?v=202611012336';
-import { chat, chatWithWebSearch, nativeVerifier, PROVIDERS, aiReady, aiConfig, isLocal } from './ai.js?v=202611012336';
-import { $, esc, num, round, openModal, toast, splitList, weightToDisplay, weightFromDisplay, weightUnit, fmtDims, fmtVolSmall, lenToDisplay, lenUnit } from './utils.js?v=202611012336';
-import { gatherEvidence, searchProvider, SEARCH_PROVIDERS, readerStatus } from './websearch.js?v=202611012336';
-import { CONFIG } from './config.js?v=202611012336';
-import { saveSettings } from './store.js?v=202611012336';
-import { loadedModel } from './local-ai.js?v=202611012336';
+import { state, settings, CATEGORIES, ACTIVITIES, ENVIRONMENTS, catInfo } from './store.js?v=202611012337';
+import { chat, chatWithWebSearch, nativeVerifier, PROVIDERS, aiReady, aiConfig, isLocal } from './ai.js?v=202611012337';
+import { $, esc, num, round, openModal, toast, splitList, weightToDisplay, weightFromDisplay, weightUnit, fmtDims, fmtVolSmall, lenToDisplay, lenUnit } from './utils.js?v=202611012337';
+import { gatherEvidence, searchProvider, SEARCH_PROVIDERS, readerStatus } from './websearch.js?v=202611012337';
+import { CONFIG } from './config.js?v=202611012337';
+import { saveSettings } from './store.js?v=202611012337';
+import { loadedModel } from './local-ai.js?v=202611012337';
 
 const SYSTEM = () => `You are FieldPack's inventory assistant for an archaeology and field-research team. Turn the user's plain-language description of gear into inventory records for a trip-planning database.
 
@@ -53,7 +53,8 @@ function clean(it) {
   };
 }
 
-let relayVerifyOffUntil = 0;
+// Skip the relay's Gemini check for a while after it reports quota/billing or 'not set up' (remembered across reloads).
+let relayVerifyOffUntil = (() => { try { return +localStorage.getItem('fieldpack.relayVerifyOffUntil') || 0; } catch { return 0; } })();
 
 const VERIFY_SYSTEM = native => `You check gear specifications for a field-research inventory. For each item, find the manufacturer's published specs (prefer the manufacturer's page, then major retailers; avoid forums and guesses). Match the exact model and size; if a source is for a different variant, don't use it.
 Report numbers per single unit in metric: weightKg (convert from lb/oz/g), external dimensions lengthCm, widthCm, heightCm (convert from inches), and capacityL for bags/containers (convert from cubic inches or gallons). Use 0 for anything you could not find.
@@ -156,8 +157,12 @@ export function openIntake({ initial = '', onAdd, goSettings, confirmLocal }) {
           const out = await res.json().catch(() => ({}));
           if (!res.ok) {
             // Not set up, or Google quota/billing: stop asking for a while and use the free lookup quietly.
-            if (out.code === 'no_verify' || out.code === 'quota' || res.status === 501 || res.status === 429) relayVerifyOffUntil = Date.now() + 30 * 60 * 1000;
-            throw Object.assign(new Error(out.error || `relay HTTP ${res.status}`), { quiet: out.code === 'no_verify' });
+            if (out.code === 'no_verify' || out.code === 'quota' || res.status === 501 || res.status === 429) {
+              relayVerifyOffUntil = Date.now() + 6 * 60 * 60 * 1000;
+              try { localStorage.setItem('fieldpack.relayVerifyOffUntil', String(relayVerifyOffUntil)); } catch { /* ignore */ }
+            }
+            // Quota/billing and not-set-up are expected states, not errors: fall back silently.
+            throw Object.assign(new Error(out.error || `relay HTTP ${res.status}`), { quiet: ['no_verify', 'quota'].includes(out.code) || res.status === 429 });
           }
           // The relay numbers items 0..n in the order sent; map back to draft rows.
           const j0 = extractJson(out.text);
