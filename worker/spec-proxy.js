@@ -108,7 +108,8 @@ async function readPage(env, url) {
         // Specs often load via scripts; if none are visible, try the rendering reader before giving up on them.
         if (/\b(weight|weighs|dimensions?)\b[^\n]{0,60}\d/i.test(text)) return [200, page];
         const r = await jinaRead(env, u.href);
-        return [200, r && /\b(weight|weighs|dimensions?)\b[^\n]{0,60}\d/i.test(r.text) ? r : page];
+        if (r && r !== 'busy' && /\b(weight|weighs|dimensions?)\b[^\n]{0,60}\d/i.test(r.text)) return [200, r];
+        return [200, page];
       }
     }
   } catch { /* fall through */ }
@@ -120,6 +121,9 @@ async function readPage(env, url) {
 }
 
 async function jinaRead(env, href) {
+  // Without a key, Jina's free limit is shared by everything running on Cloudflare and is
+  // nearly always exhausted; let the visitor's browser use its own reader instead.
+  if (!env.JINA_API_KEY) return null;
   try {
     const res = await fetch(`https://r.jina.ai/${href}`, { headers: { Accept: 'application/json', ...(env.JINA_API_KEY ? { Authorization: `Bearer ${env.JINA_API_KEY}` } : {}) } });
     if (res.status === 429) return 'busy';

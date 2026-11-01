@@ -1,13 +1,13 @@
 // "Add gear with AI": describe items in plain words; the AI drafts inventory
 // records and asks short follow-up questions when details that matter for
 // planning (quantity, weight, size, capacity) are missing or ambiguous.
-import { state, settings, CATEGORIES, ACTIVITIES, ENVIRONMENTS, catInfo } from './store.js?v=202611012337';
-import { chat, chatWithWebSearch, nativeVerifier, PROVIDERS, aiReady, aiConfig, isLocal } from './ai.js?v=202611012337';
-import { $, esc, num, round, openModal, toast, splitList, weightToDisplay, weightFromDisplay, weightUnit, fmtDims, fmtVolSmall, lenToDisplay, lenUnit } from './utils.js?v=202611012337';
-import { gatherEvidence, searchProvider, SEARCH_PROVIDERS, readerStatus } from './websearch.js?v=202611012337';
-import { CONFIG } from './config.js?v=202611012337';
-import { saveSettings } from './store.js?v=202611012337';
-import { loadedModel } from './local-ai.js?v=202611012337';
+import { state, settings, CATEGORIES, ACTIVITIES, ENVIRONMENTS, catInfo } from './store.js?v=202611012351';
+import { chat, chatWithWebSearch, nativeVerifier, PROVIDERS, aiReady, aiConfig, isLocal } from './ai.js?v=202611012351';
+import { $, esc, num, round, openModal, toast, splitList, weightToDisplay, weightFromDisplay, weightUnit, fmtDims, fmtVolSmall, lenToDisplay, lenUnit } from './utils.js?v=202611012351';
+import { gatherEvidence, searchProvider, SEARCH_PROVIDERS, readerStatus } from './websearch.js?v=202611012351';
+import { CONFIG } from './config.js?v=202611012351';
+import { saveSettings } from './store.js?v=202611012351';
+import { loadedModel } from './local-ai.js?v=202611012351';
 
 const SYSTEM = () => `You are FieldPack's inventory assistant for an archaeology and field-research team. Turn the user's plain-language description of gear into inventory records for a trip-planning database.
 

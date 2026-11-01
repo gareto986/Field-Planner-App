@@ -1,6 +1,6 @@
 // Central app state + browser persistence. The Excel workbook is the
 // system of record; localStorage is a crash-safe working copy.
-import { uid } from './utils.js?v=202611012337';
+import { uid } from './utils.js?v=202611012351';
 
 export const CATEGORIES = {
   Archaeology: { icon: '🏺', color: '#b4532a' },  // terracotta

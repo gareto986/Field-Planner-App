@@ -6,8 +6,8 @@
 // Pages are read as text via Jina Reader (keyless). When a page has no specs but
 // links to the product (search results, category pages), the best-matching links
 // are followed one hop.
-import { CONFIG } from './config.js?v=202611012337';
-import { settings } from './store.js?v=202611012337';
+import { CONFIG } from './config.js?v=202611012351';
+import { settings } from './store.js?v=202611012351';
 
 const TIMEOUT_MS = 20000;
 
@@ -102,9 +102,10 @@ export async function readPage(url) {
       const res = await paced(() => fetchWithTimeout(new URL('read', CONFIG.specProxyUrl).href, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url }) }, 30000));
       const d = await res.json().catch(() => ({}));
       if (res.ok && d.text) return { url: d.url || url, title: d.title || url, text: d.text };
-      if (res.status === 429) { readerStatus.busy = true; return null; }
-      if (d.code === 'unreadable') return null;
-      relayReadOff = true; // relay without /read (older code): use the browser reader from now on
+      // 'busy' / 'unreadable' (site blocks Cloudflare, or the relay's reader is rate-limited):
+      // fall through and try the reader from this browser, which has its own limit.
+      if (!['busy', 'unreadable'].includes(d.code) && res.status !== 429) relayReadOff = true; // relay without /read (older code)
+
     } catch { /* fall back to Jina from the browser */ }
   }
   try {
