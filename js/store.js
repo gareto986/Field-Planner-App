@@ -74,7 +74,7 @@ export const settings = {
   customActivities: [],
   cloud: { clientId: '', last: null },
   autosave: true,
-  ai: { provider: 'local', model: '', apiKey: '', baseUrl: '', keys: {} },
+  ai: { provider: 'ovh', model: '', apiKey: '', baseUrl: '', keys: {} },
 };
 
 const listeners = new Set();

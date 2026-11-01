@@ -3,9 +3,13 @@
 import { state, settings, itemById, catInfo } from './store.js';
 import { itemVolume, planStats, packingSummary, relevance } from './planner.js';
 import { round } from './utils.js';
-import { DEFAULT_LOCAL_MODEL, hasWebGPU, localChat } from './local-ai.js';
+import { DEFAULT_LOCAL_MODEL, hasWebGPU, localChat, isLowMemory } from './local-ai.js';
+
+const OVH_BASE = 'https://oai.endpoints.kepler.ai.cloud.ovh.net/v1';
+const OVH_FALLBACKS = ['gpt-oss-120b', 'Meta-Llama-3_3-70B-Instruct', 'Qwen3.6-27B', 'Mistral-Small-3.2-24B-Instruct-2506', 'gpt-oss-20b'];
 
 export const PROVIDERS = {
+  ovh:       { label: 'Free cloud AI, no key (OVHcloud)', defaultModel: 'gpt-oss-120b', keyHint: 'optional: a free key raises the limit', keyUrl: 'https://endpoints.ai.cloud.ovh.net/', free: true, noKey: true },
   local:     { label: 'Free built-in AI (runs in your browser)', defaultModel: DEFAULT_LOCAL_MODEL, keyHint: 'no key needed', local: true },
   openrouter:{ label: 'Free cloud models (OpenRouter)', defaultModel: 'google/gemma-4-31b-it:free', keyHint: 'sk-or-… (free account)', keyUrl: 'https://openrouter.ai/settings/keys', free: true },
   anthropic: { label: 'Anthropic Claude', defaultModel: 'claude-opus-5-5', keyHint: 'sk-ant-…', keyUrl: 'https://console.anthropic.com/settings/keys' },
@@ -18,7 +22,7 @@ export const aiConfig = () => {
   const a = settings.ai, p = PROVIDERS[a.provider] || PROVIDERS.anthropic;
   return { provider: a.provider, model: a.model || p.defaultModel, apiKey: a.keys?.[a.provider] ?? a.apiKey ?? '', baseUrl: a.baseUrl || p.baseUrl || '' };
 };
-export const aiReady = () => { const c = aiConfig(); return c.provider === 'local' ? hasWebGPU() : !!(c.apiKey || c.provider === 'compatible'); };
+export const aiReady = () => { const c = aiConfig(); return c.provider === 'local' ? hasWebGPU() : !!(c.apiKey || c.provider === 'compatible' || PROVIDERS[c.provider]?.noKey); };
 export const isLocal = () => aiConfig().provider === 'local';
 
 // Claude models that accept output_config.effort + server-side refusal fallbacks.
@@ -30,7 +34,7 @@ async function postJSON(url, headers, body) {
   let data; try { data = JSON.parse(text); } catch { data = { raw: text }; }
   if (!res.ok) {
     const msg = data?.error?.message || data?.error || data?.message || text.slice(0, 300);
-    throw new Error(`${res.status}: ${typeof msg === 'string' ? msg : JSON.stringify(msg)}`);
+    throw Object.assign(new Error(`${res.status}: ${typeof msg === 'string' ? msg : JSON.stringify(msg)}`), { status: res.status });
   }
   return data;
 }
@@ -64,6 +68,28 @@ export async function chat(system, messages) {
       { systemInstruction: { parts: [{ text: system }] }, contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })) });
     return (d.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('') || '(empty response)';
   }
+  if (c.provider === 'ovh') {
+    // Anonymous use is limited to 2 requests/minute per model, so if one model is
+    // busy (429) or unavailable, move on to the next open model.
+    const pool = [c.model, ...(settings.ai.ovhModels?.length ? settings.ai.ovhModels : OVH_FALLBACKS)].filter((m, i, a) => a.indexOf(m) === i).slice(0, 5);
+    let lastErr;
+    for (const model of pool) {
+      try {
+        const d = await postJSON(`${OVH_BASE}/chat/completions`, c.apiKey ? { Authorization: `Bearer ${c.apiKey}` } : {},
+          { model, messages: [{ role: 'system', content: system }, ...messages], max_tokens: 8000 });
+        const text = d.choices?.[0]?.message?.content || '';
+        if (!text.trim()) { lastErr = new Error('Empty response'); continue; }
+        lastServedModel = model;
+        return text.replace(/<think>[\s\S]*?<\/think>\s*/g, '').trim();
+      } catch (e) {
+        lastErr = e;
+        if (!(e.status === 429 || e.status >= 500 || e.status === 404 || /unavailable|not found/i.test(e.message))) throw e;
+      }
+    }
+    throw new Error(lastErr?.status === 429
+      ? 'The free OVHcloud models are busy (anonymous use allows 2 requests per minute per model). Wait a minute and try again, or add a free OVHcloud key in Settings.'
+      : (lastErr?.message || 'OVHcloud did not respond.'));
+  }
   if (c.provider === 'openrouter') {
     // Free open-weight models. Up to two other free models act as automatic fallbacks
     // when the chosen one is rate-limited or rotated out.
@@ -81,6 +107,18 @@ export async function chat(system, messages) {
 }
 
 /** Live list of OpenRouter's free models (the list rotates, so fetch it rather than hard-coding). No key needed. */
+let lastServedModel = '';
+export const servedModel = () => lastServedModel;
+
+/** Live list of OVHcloud AI Endpoints chat models (public, no key needed). */
+export async function fetchOvhModels() {
+  const res = await fetch(`${OVH_BASE}/models`);
+  if (!res.ok) throw new Error(`OVHcloud model list: HTTP ${res.status}`);
+  const { data } = await res.json();
+  const ids = data.map(m => m.id).filter(id => !/guard|embed|bge|whisper|tts|diffusion|reranker/i.test(id));
+  return [...OVH_FALLBACKS.filter(id => ids.includes(id)), ...ids.filter(id => !OVH_FALLBACKS.includes(id))];
+}
+
 export async function fetchFreeModels() {
   const res = await fetch('https://openrouter.ai/api/v1/models');
   if (!res.ok) throw new Error(`OpenRouter model list: HTTP ${res.status}`);
@@ -114,7 +152,7 @@ export function buildTripBrief(plan = state.plan, { compact = false } = {}) {
   // and items that match the trip.
   const used = new Set([...plan.packed.map(p => p.itemId), ...plan.containers.map(c => c.itemId)]);
   const items = compact
-    ? state.items.filter(i => used.has(i.id) || i.category === 'Container' || relevance(i, r) >= 3).slice(0, 60)
+    ? state.items.filter(i => used.has(i.id) || i.category === 'Container' || relevance(i, r) >= 3).slice(0, isLowMemory() ? 35 : 60)
     : state.items;
   const inv = items.map(i => compact ? [
     i.id, i.name, i.category, round(i.weightKg, 2), round(itemVolume(i), 1), i.qtyOwned || 0,

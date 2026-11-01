@@ -4,6 +4,7 @@
 import { state, settings, CATEGORIES, ACTIVITIES, ENVIRONMENTS, catInfo } from './store.js';
 import { chat, aiReady, aiConfig, isLocal } from './ai.js';
 import { $, esc, num, round, openModal, toast, splitList, weightToDisplay, weightFromDisplay, weightUnit } from './utils.js';
+import { loadedModel } from './local-ai.js';
 
 const SYSTEM = () => `You are FieldPack's inventory assistant for an archaeology and field-research team. Turn the user's plain-language description of gear into inventory records for a trip-planning database.
 
@@ -49,7 +50,7 @@ function clean(it) {
  * Open the AI intake window.
  * @param {{ initial?: string, onAdd: (items: object[]) => void, goSettings: () => void }} opts
  */
-export function openIntake({ initial = '', onAdd, goSettings }) {
+export function openIntake({ initial = '', onAdd, goSettings, confirmLocal }) {
   const units = settings.units;
   let messages = [];
   let draft = [];
@@ -73,13 +74,15 @@ export function openIntake({ initial = '', onAdd, goSettings }) {
       ${messages.length ? `<div class="intake-chat">${messages.map(x => x.role === 'user'
         ? `<div class="msg user">${esc(x.shown || x.content)}</div>`
         : `<div class="msg assistant">${esc(x.display || '')}</div>`).join('')}
-        ${busy ? '<div class="msg assistant thinking"><span></span><span></span><span></span> working it out…</div>' : ''}</div>` : ''}
+        ${busy ? `<div class="msg assistant thinking"><span></span><span></span><span></span> ${isLocal() ? 'the built-in AI is working (the first run can take a minute or two)…' : 'working it out…'}</div>
+          ${isLocal() && loadedModel() !== aiConfig().model ? '<div class="ai-progress" id="aiProgress"><div class="minibar"><i style="width:0%;background:var(--teal)"></i></div><span class="small muted">Starting the built-in AI…</span></div>' : ''}` : ''}</div>` : ''}
       ${questions.length && !busy ? `<div class="questions"><b>A few quick questions</b><ol>${questions.map(q => `<li>${esc(q)}</li>`).join('')}</ol></div>` : ''}
+      ${isLocal() && loadedModel() !== aiConfig().model && !messages.length ? '<p class="small muted">🏕️ Using the free built-in AI. If it hasn\'t been used on this computer yet, the first request downloads the model once (≈1–2 GB) and shows progress here.</p>' : ''}
       <form id="intakeForm" class="intake-form">
         <textarea name="q" rows="${messages.length ? 2 : 4}" placeholder="${messages.length ? 'Answer the questions, add more items, or say “use your best estimates”…' : 'e.g. two 1/8 inch shaker screens, a Pelican-style case for the total station, 500 artifact bags, and 6 waterproof clipboards'}" ${busy ? 'disabled' : ''}>${messages.length ? '' : esc(initial)}</textarea>
         <div class="row wrap"><button class="btn accent" ${busy ? 'disabled' : ''}>${messages.length ? 'Send' : '✨ Draft items'}</button>
           ${questions.length && !busy ? '<button type="button" class="btn ghost" data-skip>Skip questions, use estimates</button>' : ''}
-          <span class="muted small">${esc(aiConfig().provider === 'local' ? 'Using the free built-in AI' : `Using ${aiConfig().model}`)}</span></div>
+          <span class="muted small">${esc(aiConfig().provider === 'local' ? 'Using the free built-in AI' : aiConfig().provider === 'ovh' ? `Using free ${aiConfig().model} (OVHcloud)` : `Using ${aiConfig().model}`)}</span></div>
       </form>
       ${draft.length ? `<h3 class="draft-h">Draft items <small class="muted">(edit anything, then add)</small></h3>
       <div class="table-wrap"><table class="draft-table"><thead><tr><th></th><th>Name</th><th>Category</th><th>Weight (${weightUnit(units)})</th><th>Qty</th><th>Size (cm)</th><th>Tags / notes</th><th></th></tr></thead><tbody>
@@ -112,6 +115,8 @@ export function openIntake({ initial = '', onAdd, goSettings }) {
 
   async function send(text) {
     syncEdits();
+    // First use of the built-in AI: ask before the one-time model download.
+    if (isLocal() && confirmLocal && !(await confirmLocal())) return;
     const content = draft.length && messages.length
       ? `${text}\n\n(Current draft, keep my edits: ${JSON.stringify(draft.map(({ name, category, weightKg, qtyOwned }) => ({ name, category, weightKg: round(weightKg, 3), qtyOwned })))})`
       : text;

@@ -6,7 +6,7 @@ import { autoPack, binPack, planStats, packingSummary, itemVolume, isContainer, 
 import * as excel from './excel.js';
 import * as cloud from './onedrive.js';
 import { LOCAL_MODELS, hasWebGPU, gpuStatus, isModelCached, loadLocalModel, onLocalProgress, loadedModel } from './local-ai.js';
-import { PROVIDERS, fetchFreeModels, isLocal, aiConfig, aiReady, chat, testConnection, SYSTEM_PROMPT, buildTripBrief, parseSuggestion, stripJson, iconFor } from './ai.js';
+import { PROVIDERS, fetchFreeModels, fetchOvhModels, servedModel, isLocal, aiConfig, aiReady, chat, testConnection, SYSTEM_PROMPT, buildTripBrief, parseSuggestion, stripJson, iconFor } from './ai.js';
 import { SAMPLE_ITEMS } from './sample-data.js';
 import { openIntake } from './intake.js';
 
@@ -361,7 +361,7 @@ function aiPanel() {
     ? `<details class="brief"><summary>📨 Trip brief sent to ${esc(PROVIDERS[ai.provider]?.label || ai.provider)}</summary><pre>${esc(m.content)}</pre></details>`
     : `<div class="msg ${m.role}">${m.role === 'assistant' ? markdown(stripJson(m.content)) : esc(m.content)}</div>`).join('');
   const sug = ai.suggestion;
-  return `<div class="card-head"><h3>🤖 AI trip analyst</h3><span class="muted small">${isLocal() ? `🏕️ Free built-in · ${esc(LOCAL_MODELS.find(m => m.id === c.model)?.label || c.model)}` : `${esc(PROVIDERS[c.provider].label.split(' (')[0])} · ${esc(c.model)}`}</span></div>
+  return `<div class="card-head"><h3>🤖 AI trip analyst</h3><span class="muted small">${isLocal() ? `🏕️ Free built-in · ${esc(LOCAL_MODELS.find(m => m.id === c.model)?.label || c.model)}` : c.provider === 'ovh' ? `🌍 Free (OVHcloud) · ${esc(servedModel() || c.model)}` : `${esc(PROVIDERS[c.provider].label.split(' (')[0])} · ${esc(c.model)}`}</span></div>
     <button class="btn accent wide" data-action="ai-analyze" ${aiBusy ? 'disabled' : ''}>${ai.messages.length ? '🔄 Re-analyze current plan' : '✨ Analyze this trip'}</button>
     <div class="chat">${msgs || '<p class="muted small">The AI gets your requirements, full inventory and the current board, then returns a plan you can apply with one click.</p>'}
       ${aiBusy ? `<div class="msg assistant thinking"><span></span><span></span><span></span> ${isLocal() ? 'the built-in AI is working (this can take a minute or two)…' : 'thinking through your trip…'}</div>
@@ -510,9 +510,9 @@ function viewSettings() {
     <div class="card">
       <div class="card-head"><h2>🤖 AI connection</h2><span class="muted">Use the free built-in AI, or bring your own. Requests never go through any FieldPack server.</span></div>
       <div class="providers">${Object.entries(PROVIDERS).map(([k, v]) => `<button class="tcard ${c.provider === k ? 'on' : ''}" data-provider="${k}">
-        <span>${{ local: '🏕️', openrouter: '🆓', anthropic: '✳️', openai: '⚪', gemini: '💎', compatible: '🦙' }[k]}</span>${esc(v.label)}</button>`).join('')}</div>
+        <span>${{ ovh: '🌍', local: '🏕️', openrouter: '🆓', anthropic: '✳️', openai: '⚪', gemini: '💎', compatible: '🦙' }[k]}</span>${esc(v.label)}</button>`).join('')}</div>
       ${c.provider === 'local' ? localSettings(c) : `<div class="grid2">
-        ${c.provider === 'openrouter'
+        ${c.provider === 'openrouter' || c.provider === 'ovh'
           ? `<label>Free model <select id="aiModel"><option value="${esc(c.model)}">${esc(c.model)}</option></select><small class="muted" id="freeModelsNote">Loading the current list of free models…</small></label>`
           : `<label>Model<input id="aiModel" value="${esc(settings.ai.model)}" placeholder="${esc(p.defaultModel)}"></label>`}
         <label>API key ${p.keyUrl ? `<a href="${p.keyUrl}" target="_blank" rel="noopener" class="small">get a key ↗</a>` : ''}<input id="aiKey" type="password" autocomplete="off" value="${esc(c.apiKey)}" placeholder="${esc(p.keyHint)}"></label>
@@ -522,6 +522,9 @@ function viewSettings() {
       <p class="muted small">🔐 Your key is stored only in this browser's local storage, and the Excel file never sees it. Use a key with a spending limit.
       ${c.provider === 'compatible' ? 'For Ollama, start it with <code>OLLAMA_ORIGINS=*</code> so the browser can reach it.' : ''}
       ${c.provider === 'anthropic' ? 'Claude is called with direct browser access enabled, and refusals fall back automatically on current models.' : ''}</p>
+      ${c.provider === 'ovh' ? `<div class="note-box"><b>🌍 Works right away: no account, no key.</b> Uses open-weight models (gpt-oss, Llama, Qwen, Mistral) on OVHcloud AI Endpoints, hosted in France under EU data-protection rules.
+        Without a key you get 2 requests per minute per model; FieldPack automatically switches to another open model if one is busy. A free OVHcloud key (optional) raises that to 400/minute.
+        <br><b>Privacy:</b> your trip details go to OVHcloud to be answered. For confidential site locations, use the built-in AI (runs on this computer).</div>` : ''}
       ${c.provider === 'openrouter' ? `<div class="note-box"><b>🆓 Free open models, in the cloud.</b> Create a free OpenRouter account (no credit card), make a key, and paste it above.
         You get open-weight models like Gemma and Nemotron at no cost, with daily limits (roughly 50 requests/day on a free account) and automatic fallback to another free model if one is busy.
         <br><b>Privacy:</b> free providers may log prompts. Don't put exact site locations or other confidential details in trip notes when using free cloud models; use the built-in AI for sensitive trips.</div>` : ''}`}
@@ -614,7 +617,14 @@ function afterRender() {
   const acctEl = $('#cloudAcct');
   if (acctEl && cloud.cloudConfigured()) cloud.currentAccount().then(a => { const el = $('#cloudAcct'); if (el) el.textContent = a ? `${a.name || ''} (${a.username})` : 'Not signed in'; });
   const freeSel = $('select#aiModel');
-  if (freeSel) fetchFreeModels().then(list => {
+  if (freeSel && aiConfig().provider === 'ovh') fetchOvhModels().then(ids => {
+    settings.ai.ovhModels = ids; saveSettings();
+    const cur = aiConfig().model;
+    if (!ids.includes(cur)) ids.unshift(cur);
+    freeSel.innerHTML = ids.map(id => `<option value="${esc(id)}" ${id === cur ? 'selected' : ''}>${esc(id)}${id === 'gpt-oss-120b' ? ' (recommended)' : ''}</option>`).join('');
+    const note = $('#freeModelsNote'); if (note) note.textContent = `${ids.length} open models available. If yours is busy, the next one answers.`;
+  }).catch(() => { const note = $('#freeModelsNote'); if (note) note.textContent = 'Could not load the model list; using the saved model.'; });
+  else if (freeSel) fetchFreeModels().then(list => {
     settings.ai.freeModels = list.map(m => m.id); saveSettings();
     const cur = aiConfig().model;
     if (!list.some(m => m.id === cur)) list.unshift({ id: cur, name: `${cur} (not in current free list)`, context: 0 });
@@ -795,6 +805,13 @@ function startIntake(initial = '') {
   openIntake({
     initial,
     goSettings: () => setView('settings'),
+    // The intake window can't open a second dialog, so just verify the GPU here;
+    // the intake itself shows the one-time download notice.
+    confirmLocal: async () => {
+      const g = await gpuStatus();
+      if (!g.ok) { toast(g.message, 'bad', 10000); return false; }
+      return true;
+    },
     onAdd: items => {
       items.forEach(it => upsertItem({ ...it, id: nextItemId(it.category) }));
       toast(`Added ${items.length} item${items.length > 1 ? 's' : ''} to inventory 🎉`, 'ok');
