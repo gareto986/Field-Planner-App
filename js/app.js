@@ -1,14 +1,14 @@
 import { state, settings, commit, persist, saveSettings, restore, subscribe, CATEGORIES, catInfo, ENVIRONMENTS, ACTIVITIES, ACTIVITY_GROUPS,
-  TRANSPORT, emptyPlan, defaultRequest, itemById, nextItemId } from './store.js';
+  TRANSPORT, emptyPlan, defaultRequest, itemById, nextItemId } from './store.js?v=20261101b';
 import { $, $$, esc, uid, num, round, fmtWeight, fmtVolume, weightToDisplay, weightFromDisplay, weightUnit, splitList,
-  toast, openModal, confirmDialog, markdown, debounce } from './utils.js';
-import { autoPack, binPack, planStats, packingSummary, itemVolume, isContainer, isWorn, limitsFor, suggestedQty, relevance } from './planner.js';
-import * as excel from './excel.js';
-import * as cloud from './onedrive.js';
-import { LOCAL_MODELS, hasWebGPU, gpuStatus, isModelCached, loadLocalModel, onLocalProgress, loadedModel } from './local-ai.js';
-import { PROVIDERS, fetchFreeModels, fetchOvhModels, servedModel, isLocal, aiConfig, aiReady, chat, testConnection, SYSTEM_PROMPT, buildTripBrief, parseSuggestion, stripJson, iconFor } from './ai.js';
-import { SAMPLE_ITEMS } from './sample-data.js';
-import { openIntake } from './intake.js';
+  toast, openModal, confirmDialog, markdown, debounce } from './utils.js?v=20261101b';
+import { autoPack, binPack, planStats, packingSummary, itemVolume, isContainer, isWorn, limitsFor, suggestedQty, relevance } from './planner.js?v=20261101b';
+import * as excel from './excel.js?v=20261101b';
+import * as cloud from './onedrive.js?v=20261101b';
+import { LOCAL_MODELS, hasWebGPU, gpuStatus, isModelCached, loadLocalModel, onLocalProgress, loadedModel } from './local-ai.js?v=20261101b';
+import { PROVIDERS, fetchFreeModels, fetchOvhModels, servedModel, isLocal, aiConfig, aiReady, chat, testConnection, SYSTEM_PROMPT, buildTripBrief, parseSuggestion, stripJson, iconFor } from './ai.js?v=20261101b';
+import { SAMPLE_ITEMS } from './sample-data.js?v=20261101b';
+import { openIntake } from './intake.js?v=20261101b';
 
 const U = () => settings.units;
 const W = kg => fmtWeight(kg, U());
@@ -25,6 +25,18 @@ const ACT_ICONS = { photogrammetry: '📸', geophysics: '📡', coring: '🔩', 
 // Rendering
 // =====================================================================
 function render() {
+  try { renderUnsafe(); } catch (e) {
+    console.error(e);
+    $('#view').innerHTML = `<section class="card" style="max-width:640px;margin:2rem auto;text-align:center">
+      <h2>Something went wrong showing this page</h2>
+      <p>It may be data saved by an older version of FieldPack. You can try another tab, start a fresh trip, or reset the data stored in this browser (your Excel files are not touched).</p>
+      <p><button class="btn" data-view="planner">Quick Plan</button> <button class="btn primary" data-action="recover-trip">Start a fresh trip</button>
+      <button class="btn danger" data-action="reset-all">Reset browser data</button></p>
+      <p class="muted small">Details: ${esc(e.message)}</p></section>`;
+  }
+}
+
+function renderUnsafe() {
   $$('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.view === state.view));
   renderWorkbookStatus();
   const view = { planner: viewPlanner, board: viewBoard, inventory: viewInventory, history: viewHistory, settings: viewSettings }[state.view] || viewPlanner;
@@ -1244,6 +1256,7 @@ function onClick(e) {
       const add = SAMPLE_ITEMS.filter(i => !ids.has(i.id));
       state.items.push(...structuredClone(add)); commit(); return toast(`Added ${add.length} sample items`, 'ok');
     }
+    case 'recover-trip': state.plan = emptyPlan(); state.view = 'planner'; return commit({ dirty: false });
     case 'reset-all': return confirmDialog('Clear all data stored in this browser? Your Excel file is not touched.', 'Reset').then(ok => {
       if (ok) { localStorage.clear(); excel.disconnect(); location.reload(); }
     });
@@ -1300,6 +1313,7 @@ function onDragEnd() { drag = null; document.body.classList.remove('is-dragging'
 // Boot
 // =====================================================================
 async function boot() {
+  window.__fieldpackStarted = true;
   const had = restore();
   subscribe(render);
   subscribe(autosave);

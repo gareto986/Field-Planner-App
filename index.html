@@ -9,7 +9,7 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎒</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700;9..144,900&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/styles.css?v=20261101b">
 </head>
 <body>
   <header class="topbar">
@@ -43,6 +43,24 @@
   <div id="modalRoot"></div>
   <div id="toasts" aria-live="polite"></div>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script type="module" src="js/app.js"></script>
+  <script>
+    // Safety net: if the app can't start (e.g. a half-updated cache or bad saved data),
+    // show a recovery panel instead of a blank page.
+    window.__fieldpackFail = function (msg) {
+      var v = document.getElementById('view');
+      if (!v || v.dataset.failed) return;
+      v.dataset.failed = '1';
+      v.innerHTML = '<section class="card" style="max-width:640px;margin:2rem auto;text-align:center">' +
+        '<h2>Hmm, FieldPack didn\u2019t start</h2>' +
+        '<p>This usually happens right after an update while your browser still has some old files, or when data saved by an older version gets in the way.</p>' +
+        '<p><button class="btn primary" onclick="location.reload(true)">\u21bb Reload</button> ' +
+        '<button class="btn danger" onclick="if(confirm(\'Clear FieldPack data stored in this browser? Your Excel files are not touched, but unsaved trips/gear that only live in this browser will be removed.\')){localStorage.clear();sessionStorage.clear();location.reload(true)}">Reset browser data</button></p>' +
+        '<p class="muted small">Details: ' + String(msg).replace(/[<>&]/g, '') + '</p></section>';
+    };
+    window.addEventListener('error', function (e) { if (!window.__fieldpackStarted) window.__fieldpackFail(e.message || 'script failed to load'); }, true);
+    window.addEventListener('unhandledrejection', function (e) { if (!window.__fieldpackStarted) window.__fieldpackFail(e.reason && e.reason.message || e.reason); });
+    setTimeout(function () { if (!window.__fieldpackStarted) window.__fieldpackFail('The app did not finish loading within 15 seconds (check your internet connection).'); }, 15000);
+  </script>
+  <script type="module" src="js/app.js?v=20261101b"></script>
 </body>
 </html>
