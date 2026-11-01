@@ -16,19 +16,53 @@ export const num = (v, d = 0) => {
 
 export const round = (n, p = 2) => Math.round(n * 10 ** p) / 10 ** p;
 
-// ----- Units (storage is always metric) -----
+// ----- Units -----
+// Values are always stored in metric (kg, cm, L); these helpers convert for display
+// and input. Imperial: lb/oz for weight, inches for size, cubic inches for item and
+// container volumes, cubic feet for big totals and limits.
 export const KG_PER_LB = 0.45359237;
-export function fmtWeight(kg, units = 'metric') {
-  if (units === 'imperial') return `${round(kg / KG_PER_LB, 1)} lb`;
+export const CM_PER_IN = 2.54;
+export const IN3_PER_L = 61.0237441;
+export const L_PER_FT3 = 28.316846592;
+const imp = u => u === 'imperial';
+const n0 = x => Math.round(x).toLocaleString();
+
+export function fmtWeight(kg, units = 'imperial') {
+  if (imp(units)) {
+    const lb = kg / KG_PER_LB;
+    if (lb > 0 && lb < 1) return `${round(lb * 16, 1)} oz`;
+    return `${round(lb, lb < 100 ? 1 : 0)} lb`;
+  }
   return kg < 1 && kg > 0 ? `${Math.round(kg * 1000)} g` : `${round(kg, 2)} kg`;
 }
-export function fmtVolume(l, units = 'metric') {
-  if (units === 'imperial') return `${round(l * 61.0237 / 1000, 2)} ft³`;
+/** Big volumes (totals, limits, transport): cu ft (or cu in when under 1 cu ft). */
+export function fmtVolume(l, units = 'imperial') {
+  if (imp(units)) {
+    const ft3 = l / L_PER_FT3;
+    return ft3 >= 1 ? `${round(ft3, 1)} cu ft` : `${n0(l * IN3_PER_L)} cu in`;
+  }
   return `${round(l, 1)} L`;
 }
-export const weightToDisplay = (kg, units) => units === 'imperial' ? round(kg / KG_PER_LB, 2) : round(kg, 3);
-export const weightFromDisplay = (v, units) => units === 'imperial' ? num(v) * KG_PER_LB : num(v);
-export const weightUnit = units => units === 'imperial' ? 'lb' : 'kg';
+/** Item and container volumes: cu in. */
+export const fmtVolSmall = (l, units = 'imperial') => imp(units) ? `${n0(l * IN3_PER_L)} cu in` : `${round(l, 1)} L`;
+/** "used / capacity" pair for a container. */
+export const fmtVolPair = (used, cap, units = 'imperial') => imp(units) ? `${n0(used * IN3_PER_L)}/${n0(cap * IN3_PER_L)} cu in` : `${round(used, 1)}/${round(cap, 0)} L`;
+export const fmtDims = (l, w, h, units = 'imperial') => imp(units)
+  ? `${round(l / CM_PER_IN, 1)}×${round(w / CM_PER_IN, 1)}×${round(h / CM_PER_IN, 1)} in`
+  : `${round(l, 0)}×${round(w, 0)}×${round(h, 0)} cm`;
+
+export const weightToDisplay = (kg, units) => imp(units) ? round(kg / KG_PER_LB, 2) : round(kg, 3);
+export const weightFromDisplay = (v, units) => imp(units) ? num(v) * KG_PER_LB : num(v);
+export const weightUnit = units => imp(units) ? 'lb' : 'kg';
+export const lenToDisplay = (cm, units) => imp(units) ? round(cm / CM_PER_IN, 2) : round(cm, 1);
+export const lenFromDisplay = (v, units) => imp(units) ? num(v) * CM_PER_IN : num(v);
+export const lenUnit = units => imp(units) ? 'in' : 'cm';
+export const volSmallToDisplay = (l, units) => imp(units) ? Math.round(l * IN3_PER_L) : round(l, 2);
+export const volSmallFromDisplay = (v, units) => imp(units) ? num(v) / IN3_PER_L : num(v);
+export const volSmallUnit = units => imp(units) ? 'cu in' : 'L';
+export const volBigToDisplay = (l, units) => imp(units) ? round(l / L_PER_FT3, 1) : round(l, 0);
+export const volBigFromDisplay = (v, units) => imp(units) ? num(v) * L_PER_FT3 : num(v);
+export const volBigUnit = units => imp(units) ? 'cu ft' : 'L';
 
 export const splitList = v => Array.isArray(v) ? v : String(v ?? '').split(/[;,|\n]/).map(s => s.trim().toLowerCase()).filter(Boolean);
 

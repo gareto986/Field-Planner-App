@@ -1,6 +1,6 @@
 // Central app state + browser persistence. The Excel workbook is the
 // system of record; localStorage is a crash-safe working copy.
-import { uid } from './utils.js?v=202611012211';
+import { uid } from './utils.js?v=202611012221';
 
 export const CATEGORIES = {
   Archaeology: { icon: '🏺', color: '#b4532a' },  // terracotta
@@ -70,7 +70,8 @@ export const state = {
 };
 
 export const settings = {
-  units: 'metric',
+  units: 'imperial',
+  unitsV2: true, // marks settings saved after imperial became the default
   customActivities: [],
   cloud: { clientId: '', last: null },
   autosave: true,
@@ -103,6 +104,8 @@ export function restore() {
   try {
     const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null');
     if (s) Object.assign(settings, s, { ai: { ...settings.ai, ...(s.ai || {}) }, cloud: { ...settings.cloud, ...(s.cloud || {}) } });
+    // One-time switch: imperial is now the default (older versions saved 'metric' automatically).
+    if (s && !s.unitsV2) { settings.units = 'imperial'; settings.unitsV2 = true; saveSettings(); }
   } catch { /* ignore */ }
   try {
     const raw = JSON.parse(localStorage.getItem(STATE_KEY) || 'null');

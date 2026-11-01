@@ -1,9 +1,9 @@
 // Bring-your-own-AI connector. Calls the provider straight from the browser
 // with the user's own key (stored only in this browser's localStorage).
-import { state, settings, itemById, catInfo } from './store.js?v=202611012211';
-import { itemVolume, planStats, packingSummary, relevance } from './planner.js?v=202611012211';
-import { round } from './utils.js?v=202611012211';
-import { DEFAULT_LOCAL_MODEL, hasWebGPU, localChat, isLowMemory } from './local-ai.js?v=202611012211';
+import { state, settings, itemById, catInfo } from './store.js?v=202611012221';
+import { itemVolume, planStats, packingSummary, relevance } from './planner.js?v=202611012221';
+import { round, fmtWeight, fmtVolume, fmtVolSmall, weightToDisplay, volSmallToDisplay, weightUnit, volSmallUnit } from './utils.js?v=202611012221';
+import { DEFAULT_LOCAL_MODEL, hasWebGPU, localChat, isLowMemory } from './local-ai.js?v=202611012221';
 
 const OVH_BASE = 'https://oai.endpoints.kepler.ai.cloud.ovh.net/v1';
 const OVH_FALLBACKS = ['gpt-oss-120b', 'Meta-Llama-3_3-70B-Instruct', 'Qwen3.6-27B', 'Mistral-Small-3.2-24B-Instruct-2506', 'gpt-oss-20b'];
@@ -133,7 +133,7 @@ export async function testConnection() {
 }
 
 // ---------------- Prompt construction ----------------
-export const SYSTEM_PROMPT = `You are FieldPack AI, an expert logistics planner for archaeological fieldwork: pedestrian survey, site recording, test excavation, full excavation, monitoring and sampling. You also know island and backcountry travel well, especially California's Channel Islands, where crews arrive by boat, carry gear from the landing to camp, and work in wind, fog and sun with limited fresh water.
+export const systemPrompt = () => `You are FieldPack AI, an expert logistics planner for archaeological fieldwork: pedestrian survey, site recording, test excavation, full excavation, monitoring and sampling. You also know island and backcountry travel well, especially California's Channel Islands, where crews arrive by boat, carry gear from the landing to camp, and work in wind, fog and sun with limited fresh water.
 You plan from the user's actual inventory (listed by ID), respect weight and volume limits, and distribute load sensibly across containers: heavy and dense items low, fragile instruments and finds in hard or padded cases, paperwork and electronics in dry bags.
 For archaeology trips, also consider:
 - excavation and screening kit scaled to crew size and number of units, and water for wet-screening if relevant;
@@ -141,7 +141,7 @@ For archaeology trips, also consider:
 - recording: forms, photo scale, north arrow, GNSS/mapping, Munsell, and battery or charging needs;
 - permits and agency requirements, and keeping site locations confidential;
 - crew safety and remote-site communications.
-Use kilograms and liters. Be practical and specific. If you mention seasonal weather, sea conditions or regulations, say they are typical and should be checked against current forecasts and the land manager's rules.`;
+${settings.units === 'imperial' ? 'Use US/imperial units in everything you write: pounds and ounces for weight, inches for size, cubic inches for item and pack volumes, cubic feet for total volumes (the inventory below is already in these units).' : 'Use kilograms, centimeters and liters.'} Be practical and specific. If you mention seasonal weather, sea conditions or regulations, say they are typical and should be checked against current forecasts and the land manager's rules.`;
 
 const fmtList = a => (Array.isArray(a) ? a : []).join(', ') || '-';
 
@@ -154,17 +154,19 @@ export function buildTripBrief(plan = state.plan, { compact = false } = {}) {
   const items = compact
     ? state.items.filter(i => used.has(i.id) || i.category === 'Container' || relevance(i, r) >= 3).slice(0, isLowMemory() ? 35 : 60)
     : state.items;
+  const u = settings.units, wu = weightUnit(u), vu = volSmallUnit(u);
+  const wt = kg => weightToDisplay(kg, u), vol = l => volSmallToDisplay(l, u);
   const inv = items.map(i => compact ? [
-    i.id, i.name, i.category, round(i.weightKg, 2), round(itemVolume(i), 1), i.qtyOwned || 0,
-    i.capacityL ? `holds ${i.capacityL} L / ${i.maxLoadKg || '?'} kg` : '', fmtList(i.useCases),
+    i.id, i.name, i.category, wt(i.weightKg), vol(itemVolume(i)), i.qtyOwned || 0,
+    i.capacityL ? `holds ${fmtVolSmall(i.capacityL, u)} / ${i.maxLoadKg ? fmtWeight(i.maxLoadKg, u) : '?'}` : '', fmtList(i.useCases),
   ].join(' | ') : [
-    i.id, i.name, i.category, round(i.weightKg, 3), round(itemVolume(i), 2), i.qtyOwned || 0,
+    i.id, i.name, i.category, wt(i.weightKg), vol(itemVolume(i)), i.qtyOwned || 0,
     i.perPerson ? 'Y' : '', i.consumable ? `${i.perPersonDay || 0}/person/day` : '',
-    i.capacityL || '', i.maxLoadKg || '', fmtList(i.useCases), fmtList(i.environments), (i.notes || '').replace(/\|/g, '/'),
+    i.capacityL ? vol(i.capacityL) : '', i.maxLoadKg ? wt(i.maxLoadKg) : '', fmtList(i.useCases), fmtList(i.environments), (i.notes || '').replace(/\|/g, '/'),
   ].join(' | ')).join('\n');
 
   const draft = plan.packed.length || plan.containers.length
-    ? `${packingSummary(plan)}\nTotals: ${round(s.totalKg, 2)} kg total (${round(s.containerKg, 2)} kg containers), ${round(s.gearL, 1)} L of gear in ${round(s.capacityL, 1)} L of container capacity.`
+    ? `${packingSummary(plan)}\nTotals: ${fmtWeight(s.totalKg, u)} total (${fmtWeight(s.containerKg, u)} of containers), ${fmtVolume(s.gearL, u)} of gear in ${fmtVolume(s.capacityL, u)} of container capacity.`
     : '(no draft yet: build the plan from scratch)';
 
   return `## Trip request
@@ -174,12 +176,12 @@ export function buildTripBrief(plan = state.plan, { compact = false } = {}) {
 - Resupply: ${r.resupplyDays > 0 ? `every ${r.resupplyDays} days (pack consumables for one leg)` : (r.days > 10 ? 'none planned; for a trip this long, suggest a resupply schedule if needed' : 'none')}
 - Environments: ${fmtList(r.environments)}
 - Activities: ${fmtList(r.activities)}
-- Transport: ${r.transport}; max total weight ${r.maxWeightKg} kg; max total volume ${r.maxVolumeL} L
+- Transport: ${r.transport}; max total weight ${fmtWeight(r.maxWeightKg, u)}; max total volume ${fmtVolume(r.maxVolumeL, u)}
 - Must-haves: ${r.mustHaves || '-'}
 - Other requirements / notes: ${r.notes || '-'}
 
 ## Inventory (only these items exist, so reference them by ID)
-${compact ? 'ID | Name | Category | kg each | L each | Owned | Container capacity | Use cases' : 'ID | Name | Category | kg each | L each | Owned | Per person | Consumption | Capacity L | Max load kg | Use cases | Environments | Notes'}
+${compact ? `ID | Name | Category | ${wu} each | ${vu} each | Owned | Container capacity | Use cases` : `ID | Name | Category | ${wu} each | ${vu} each | Owned | Per person | Consumption | Capacity ${vu} | Max load ${wu} | Use cases | Environments | Notes`}
 ${inv}
 
 ## Current draft packing plan

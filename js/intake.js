@@ -1,16 +1,16 @@
 // "Add gear with AI": describe items in plain words; the AI drafts inventory
 // records and asks short follow-up questions when details that matter for
 // planning (quantity, weight, size, capacity) are missing or ambiguous.
-import { state, settings, CATEGORIES, ACTIVITIES, ENVIRONMENTS, catInfo } from './store.js?v=202611012211';
-import { chat, aiReady, aiConfig, isLocal } from './ai.js?v=202611012211';
-import { $, esc, num, round, openModal, toast, splitList, weightToDisplay, weightFromDisplay, weightUnit } from './utils.js?v=202611012211';
-import { loadedModel } from './local-ai.js?v=202611012211';
+import { state, settings, CATEGORIES, ACTIVITIES, ENVIRONMENTS, catInfo } from './store.js?v=202611012221';
+import { chat, aiReady, aiConfig, isLocal } from './ai.js?v=202611012221';
+import { $, esc, num, round, openModal, toast, splitList, weightToDisplay, weightFromDisplay, weightUnit, fmtDims, fmtVolSmall } from './utils.js?v=202611012221';
+import { loadedModel } from './local-ai.js?v=202611012221';
 
 const SYSTEM = () => `You are FieldPack's inventory assistant for an archaeology and field-research team. Turn the user's plain-language description of gear into inventory records for a trip-planning database.
 
 Rules:
 - Categories (use exactly one): ${Object.keys(CATEGORIES).join(', ')}.
-- Use metric units: weightKg per single unit, dimensions in cm, volumes/capacities in liters.
+- In the JSON, always use metric numbers: weightKg per single unit, dimensions in cm, volumes/capacities in liters (the app converts them).${settings.units === 'imperial' ? '\n- The user works in US/imperial units: read sizes they give in lb/oz/inches correctly, and write your "message" and "questions" in pounds, ounces and inches.' : ''}
 - For common items, estimate typical weight and size and say "est." in notes. Do not ask about things you can reasonably estimate.
 - Ask a short follow-up question only when an answer would materially change planning: quantity owned when unclear, which size/model when weight varies a lot, capacity/max load for bags and containers, whether a supply is consumed per person per day. Ask at most 3 questions at a time.
 - useCases: pick from these tags when relevant (you may add others): ${[...ACTIVITIES, ...(settings.customActivities || []), 'rain', 'cold', 'hot', 'sun', 'emergency', 'navigation', 'electronics', 'repair', 'worn'].join(', ')}.
@@ -85,14 +85,14 @@ export function openIntake({ initial = '', onAdd, goSettings, confirmLocal }) {
           <span class="muted small">${esc(aiConfig().provider === 'local' ? 'Using the free built-in AI' : aiConfig().provider === 'ovh' ? `Using free ${aiConfig().model} (OVHcloud)` : `Using ${aiConfig().model}`)}</span></div>
       </form>
       ${draft.length ? `<h3 class="draft-h">Draft items <small class="muted">(edit anything, then add)</small></h3>
-      <div class="table-wrap"><table class="draft-table"><thead><tr><th></th><th>Name</th><th>Category</th><th>Weight (${weightUnit(units)})</th><th>Qty</th><th>Size (cm)</th><th>Tags / notes</th><th></th></tr></thead><tbody>
+      <div class="table-wrap"><table class="draft-table"><thead><tr><th></th><th>Name</th><th>Category</th><th>Weight (${weightUnit(units)})</th><th>Qty</th><th>Size</th><th>Tags / notes</th><th></th></tr></thead><tbody>
         ${draft.map((d, i) => `<tr data-row="${i}">
           <td class="d-icon">${esc(d.icon)}</td>
           <td><input data-f="name" value="${esc(d.name)}"></td>
           <td><select data-f="category">${Object.keys(CATEGORIES).map(c => `<option ${c === d.category ? 'selected' : ''}>${c}</option>`).join('')}</select></td>
           <td><input data-f="weight" type="number" step="any" min="0" value="${weightToDisplay(d.weightKg, units)}"></td>
           <td><input data-f="qtyOwned" type="number" min="0" value="${d.qtyOwned}"></td>
-          <td class="small">${[d.lengthCm, d.widthCm, d.heightCm].some(Boolean) ? `${round(d.lengthCm, 0)}×${round(d.widthCm, 0)}×${round(d.heightCm, 0)}` : '–'}${d.capacityL ? `<br>holds ${round(d.capacityL, 0)} L` : ''}</td>
+          <td class="small">${[d.lengthCm, d.widthCm, d.heightCm].some(Boolean) ? fmtDims(d.lengthCm, d.widthCm, d.heightCm, units) : '–'}${d.capacityL ? `<br>holds ${fmtVolSmall(d.capacityL, units)}` : ''}</td>
           <td class="small">${d.useCases.slice(0, 4).map(t => `<span class="tag">${esc(t)}</span>`).join('')}${d.perPerson ? '<span class="tag alt">per person</span>' : ''}${d.consumable ? `<span class="tag alt">${d.perPersonDay}/person/day</span>` : ''}<br><span class="muted">${esc(d.notes)}</span></td>
           <td><button type="button" class="icon-btn" data-delrow="${i}" title="Remove">✕</button></td></tr>`).join('')}
       </tbody></table></div>

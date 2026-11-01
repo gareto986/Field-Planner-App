@@ -1,19 +1,21 @@
 import { state, settings, commit, persist, saveSettings, restore, subscribe, CATEGORIES, catInfo, ENVIRONMENTS, ACTIVITIES, ACTIVITY_GROUPS,
-  TRANSPORT, emptyPlan, defaultRequest, itemById, nextItemId } from './store.js?v=202611012211';
-import { $, $$, esc, uid, num, round, fmtWeight, fmtVolume, weightToDisplay, weightFromDisplay, weightUnit, splitList,
-  toast, openModal, confirmDialog, markdown, debounce } from './utils.js?v=202611012211';
-import { autoPack, binPack, planStats, packingSummary, itemVolume, isContainer, isWorn, limitsFor, suggestedQty, relevance } from './planner.js?v=202611012211';
-import * as excel from './excel.js?v=202611012211';
-import * as cloud from './onedrive.js?v=202611012211';
-import { LOCAL_MODELS, hasWebGPU, gpuStatus, isModelCached, loadLocalModel, onLocalProgress, loadedModel } from './local-ai.js?v=202611012211';
-import { PROVIDERS, fetchFreeModels, fetchOvhModels, servedModel, isLocal, aiConfig, aiReady, chat, testConnection, SYSTEM_PROMPT, buildTripBrief, parseSuggestion, stripJson, iconFor } from './ai.js?v=202611012211';
-import { SAMPLE_ITEMS } from './sample-data.js?v=202611012211';
-import { pickerHtml, wirePicker, suggestIcon } from './emoji.js?v=202611012211';
-import { openIntake } from './intake.js?v=202611012211';
+  TRANSPORT, emptyPlan, defaultRequest, itemById, nextItemId } from './store.js?v=202611012221';
+import { $, $$, esc, uid, num, round, fmtWeight, fmtVolume, fmtVolSmall, fmtVolPair, weightToDisplay, weightFromDisplay, weightUnit,
+  lenToDisplay, lenFromDisplay, lenUnit, volSmallToDisplay, volSmallFromDisplay, volSmallUnit, volBigToDisplay, volBigFromDisplay, volBigUnit, splitList,
+  toast, openModal, confirmDialog, markdown, debounce } from './utils.js?v=202611012221';
+import { autoPack, binPack, planStats, packingSummary, itemVolume, isContainer, isWorn, limitsFor, suggestedQty, relevance } from './planner.js?v=202611012221';
+import * as excel from './excel.js?v=202611012221';
+import * as cloud from './onedrive.js?v=202611012221';
+import { LOCAL_MODELS, hasWebGPU, gpuStatus, isModelCached, loadLocalModel, onLocalProgress, loadedModel } from './local-ai.js?v=202611012221';
+import { PROVIDERS, fetchFreeModels, fetchOvhModels, servedModel, isLocal, aiConfig, aiReady, chat, testConnection, systemPrompt, buildTripBrief, parseSuggestion, stripJson, iconFor } from './ai.js?v=202611012221';
+import { SAMPLE_ITEMS } from './sample-data.js?v=202611012221';
+import { pickerHtml, wirePicker, suggestIcon } from './emoji.js?v=202611012221';
+import { openIntake } from './intake.js?v=202611012221';
 
 const U = () => settings.units;
 const W = kg => fmtWeight(kg, U());
 const V = l => fmtVolume(l, U());
+const VS = l => fmtVolSmall(l, U());
 let aiBusy = false;
 let pendingHandle = null;
 let pendingCloud = null; // Excel Online file remembered from last session, waiting for sign-in
@@ -111,8 +113,8 @@ function viewPlanner() {
         <button type="button" class="tcard ${r.transport === k ? 'on' : ''}" data-transport="${k}"><span>${t.icon}</span>${esc(t.label)}</button>`).join('')}
       </div>
       <div class="grid2">
-        <label>Max total weight (${weightUnit(U())})<input type="number" min="0" step="0.5" data-req="maxWeightKg" data-unit="w" value="${weightToDisplay(r.maxWeightKg, U())}"></label>
-        <label>Max total volume (L)<input type="number" min="0" step="5" data-req="maxVolumeL" value="${r.maxVolumeL}"></label>
+        <label>Max total weight (${weightUnit(U())})<input type="number" min="0" step="any" data-req="maxWeightKg" data-unit="w" value="${weightToDisplay(r.maxWeightKg, U())}"></label>
+        <label>Max total volume (${volBigUnit(U())})<input type="number" min="0" step="any" data-req="maxVolumeL" value="${volBigToDisplay(r.maxVolumeL, U())}"></label>
       </div>
       <p class="muted small">${lim ? `Preset for ${r.people} ${r.people > 1 ? 'people' : 'person'}: ${W(lim.kg)} / ${V(lim.l)}. Edit to override.` : 'Custom limits.'}</p>
       <div class="step"><span class="step-n">5</span><h3>Requirements</h3></div>
@@ -188,7 +190,7 @@ function tripPreview() {
     <p class="muted">${esc(r.destination || 'Somewhere with good context')}${r.startDate ? ` · ${esc(r.startDate)}` : ''}</p>
     <div class="stat-row">
       <div><b>${r.days}</b><span>days</span></div><div><b>${r.people}</b><span>people</span></div>
-      <div><b>${W(r.maxWeightKg)}</b><span>weight cap</span></div><div><b>${round(r.maxVolumeL, 0)} L</b><span>space cap</span></div>
+      <div><b>${W(r.maxWeightKg)}</b><span>weight cap</span></div><div><b>${V(r.maxVolumeL)}</b><span>space cap</span></div>
     </div>
     <div class="tagline">${r.environments.map(e => `<span class="tag">${ENV_ICONS[e] || ''} ${esc(e)}</span>`).join('')}${r.activities.map(a => `<span class="tag alt">${ACT_ICONS[a] || '🏷️'} ${esc(a)}</span>`).join('')}</div>
     <hr>
@@ -296,7 +298,7 @@ function viewBoard() {
     </div>
     <div class="gauges">
       ${gauge('Weight', s.weightPct, W(s.totalKg), `of ${W(r.maxWeightKg)} · ${W(s.kgPerPerson)}/person`)}
-      ${gauge('Container fill', s.spacePct, `${round(s.spacePct * s.capacityL, 1)} L`, `of ${round(s.capacityL, 1)} L capacity`)}
+      ${gauge('Container fill', s.spacePct, V(s.spacePct * s.capacityL), `of ${V(s.capacityL)} capacity`)}
       ${gauge('Transport volume', s.transportPct, V(s.transportL), `of ${V(r.maxVolumeL)} allowed`)}
     </div>
     <div class="cat-wrap">${categoryBar(s.byCat, s.totalKg)}</div>
@@ -315,7 +317,7 @@ function viewBoard() {
             const used = inPlan[it.id] || 0, rel = relevance(it, r) >= 3;
             return `<div class="shelf-item ${used ? 'used' : ''}" draggable="true" data-drag="shelf" data-item="${esc(it.id)}" data-name="${esc(it.name.toLowerCase())}">
               <span class="ti">${it.icon || catInfo(it.category).icon}</span>
-              <span class="sn">${esc(it.name)} ${rel ? '<span class="star" title="Matches this trip">★</span>' : ''}<small>${W(it.weightKg)} · ${round(itemVolume(it), 1)} L</small></span>
+              <span class="sn">${esc(it.name)} ${rel ? '<span class="star" title="Matches this trip">★</span>' : ''}<small>${W(it.weightKg)} · ${VS(itemVolume(it))}</small></span>
               <span class="su ${used > (it.qtyOwned || Infinity) ? 'bad' : ''}">${used}/${it.qtyOwned || '∞'}</span>
               <button class="add" data-shelf-add="${esc(it.id)}" title="Add to plan">+</button>
             </div>`;
@@ -327,7 +329,7 @@ function viewBoard() {
       <div class="row wrap packzone-head">
         <h3>🧳 Containers</h3>
         <select id="addContainer"><option value="">＋ Add a container…</option>
-          ${containerOpts.map(c => `<option value="${esc(c.id)}">${c.icon || '🎒'} ${esc(c.name)} (${round(c.capacityL, 0)} L)</option>`).join('')}</select>
+          ${containerOpts.map(c => `<option value="${esc(c.id)}">${c.icon || '🎒'} ${esc(c.name)} (${VS(c.capacityL)})</option>`).join('')}</select>
       </div>
       <div class="containers">
         ${plan.containers.map(c => containerCard(c, s)).join('')}
@@ -351,7 +353,7 @@ function containerCard(c, s) {
   return `<div class="container ${s.overfull.includes(c.uid) ? 'over' : ''}" data-drop="${esc(c.uid)}" style="--fill:${Math.round(fill * 100)}%;--fillc:${pctColor(Math.max(vp, kp))}">
     <div class="c-head">
       <span class="c-icon">${it.icon || '🎒'}</span>
-      <div><b>${esc(it.name)}</b><small class="muted">${W(pc.usedKg + it.weightKg)} packed · ${round(pc.usedL, 1)}/${round(pc.cap, 0)} L</small></div>
+      <div><b>${esc(it.name)}</b><small class="muted">${W(pc.usedKg + it.weightKg)} packed · ${fmtVolPair(pc.usedL, pc.cap, U())}</small></div>
       <button class="icon-btn" data-remove-container="${esc(c.uid)}" title="Remove container (items go loose)">✕</button>
     </div>
     <div class="c-meters">
@@ -407,7 +409,7 @@ function viewInventory() {
       <div class="kpi"><span>🧾</span><b>${state.items.length}</b><small>item types</small></div>
       <div class="kpi"><span>🔢</span><b>${totalUnits}</b><small>units owned</small></div>
       <div class="kpi"><span>⚖️</span><b>${W(totalKg)}</b><small>total gear weight</small></div>
-      <div class="kpi"><span>🎒</span><b>${round(cap, 0)} L</b><small>container capacity</small></div>
+      <div class="kpi"><span>🎒</span><b>${V(cap)}</b><small>container capacity</small></div>
     </div>
     <form class="card quickadd" id="quickAdd">
       <b>⚡ Quick add</b>
@@ -436,7 +438,7 @@ function viewInventory() {
         ${inPlan.has(i.id) ? '<span class="inv-inplan" title="In current plan">🎒</span>' : ''}
         <b>${esc(i.name)}</b>
         <small class="muted">${esc(i.id)} · ${esc(i.category)}</small>
-        <span class="inv-stats">⚖️ ${W(i.weightKg)} · 📦 ${round(itemVolume(i), 1)} L${isContainer(i) ? ` · holds ${round(i.capacityL, 0)} L` : ''}</span>
+        <span class="inv-stats">⚖️ ${W(i.weightKg)} · 📦 ${VS(itemVolume(i))}${isContainer(i) ? ` · holds ${VS(i.capacityL)}` : ''}</span>
         <span class="tags">${splitList(i.useCases).slice(0, 4).map(t => `<span class="tag">${esc(t)}</span>`).join('')}${i.consumable ? '<span class="tag alt">consumable</span>' : ''}${i.perPerson ? '<span class="tag alt">per person</span>' : ''}</span>
       </button>`).join('') || '<p class="muted">No items match.</p>'}
     </div>
@@ -569,15 +571,15 @@ function viewSettings() {
       <label class="check"><input type="checkbox" id="autosave" ${settings.autosave ? 'checked' : ''}> Auto-save changes to the workbook</label>
       ${excel.canSaveInPlace ? '' : '<p class="muted small">ℹ️ This browser cannot write files in place, so Save downloads an updated .xlsx. Use Chrome or Edge for live two-way sync.</p>'}
       <details><summary>Workbook layout</summary>
-        <p class="small"><b>Items</b>: ${excel.ITEM_COLS.map(c => esc(c[1])).join(' · ')}</p>
-        <p class="small"><b>Trips</b>: ${excel.TRIP_COLS.map(c => esc(c[1])).join(' · ')}</p>
+        <p class="small"><b>Items</b>: ${excel.columnLabels(excel.ITEM_COLS).map(c => esc(c)).join(' · ')}</p>
+        <p class="small"><b>Trips</b>: ${excel.columnLabels(excel.TRIP_COLS).map(c => esc(c)).join(' · ')}</p>
         <p class="small muted">Headers are matched loosely (for example "Weight (lb)" converts automatically). Other sheets in your workbook are left untouched.</p>
       </details>
     </div>
     <div class="card">
       <div class="card-head"><h2>⚙️ Preferences</h2></div>
       <div class="row wrap">
-        <label class="inline">Units <select id="units"><option value="metric" ${U() === 'metric' ? 'selected' : ''}>Metric (kg, L)</option><option value="imperial" ${U() === 'imperial' ? 'selected' : ''}>Imperial (lb)</option></select></label>
+        <label class="inline">Units <select id="units"><option value="imperial" ${U() === 'imperial' ? 'selected' : ''}>Imperial (lb, in, cu in / cu ft)</option><option value="metric" ${U() === 'metric' ? 'selected' : ''}>Metric (kg, cm, L)</option></select></label>
         <button class="btn" data-action="load-sample">Load sample gear</button>
         <button class="btn ghost danger-text" data-action="reset-all">Reset browser data</button>
       </div>
@@ -799,7 +801,7 @@ async function aiRun() {
   try {
     const msgs = state.plan.ai.messages.map(m => ({ role: m.role, content: m.content }));
     if (msgs[0]?.content === '(trip brief from history)') msgs[0].content = buildTripBrief(undefined, { compact: isLocal() });
-    const reply = await chat(SYSTEM_PROMPT, msgs);
+    const reply = await chat(systemPrompt(), msgs);
     state.plan.ai.messages.push({ role: 'assistant', content: reply });
     const sug = parseSuggestion(reply);
     if (sug) state.plan.ai.suggestion = sug;
@@ -874,14 +876,14 @@ function itemModal(existing, prefill = {}) {
         <label>Qty owned<input name="qtyOwned" type="number" min="0" value="${it.qtyOwned ?? 1}"></label>
       </div>
       <fieldset><legend>Size</legend><div class="grid4">
-        <label>L (cm)<input name="lengthCm" type="number" step="any" min="0" value="${it.lengthCm || ''}"></label>
-        <label>W (cm)<input name="widthCm" type="number" step="any" min="0" value="${it.widthCm || ''}"></label>
-        <label>H (cm)<input name="heightCm" type="number" step="any" min="0" value="${it.heightCm || ''}"></label>
-        <label>Packed vol (L)<input name="volumeL" type="number" step="any" min="0" value="${it.volumeL || ''}" placeholder="auto"></label>
+        <label>Length (${lenUnit(U())})<input name="lengthCm" type="number" step="any" min="0" value="${it.lengthCm ? lenToDisplay(it.lengthCm, U()) : ''}"></label>
+        <label>Width (${lenUnit(U())})<input name="widthCm" type="number" step="any" min="0" value="${it.widthCm ? lenToDisplay(it.widthCm, U()) : ''}"></label>
+        <label>Height (${lenUnit(U())})<input name="heightCm" type="number" step="any" min="0" value="${it.heightCm ? lenToDisplay(it.heightCm, U()) : ''}"></label>
+        <label>Packed vol (${volSmallUnit(U())})<input name="volumeL" type="number" step="any" min="0" value="${it.volumeL ? volSmallToDisplay(it.volumeL, U()) : ''}" placeholder="auto"></label>
       </div></fieldset>
       <fieldset class="container-only"><legend>🎒 Container specs</legend><div class="grid2">
-        <label>Capacity (L)<input name="capacityL" type="number" step="any" min="0" value="${it.capacityL || ''}"></label>
-        <label>Max load (kg)<input name="maxLoadKg" type="number" step="any" min="0" value="${it.maxLoadKg || ''}"></label>
+        <label>Capacity (${volSmallUnit(U())})<input name="capacityL" type="number" step="any" min="0" value="${it.capacityL ? volSmallToDisplay(it.capacityL, U()) : ''}"></label>
+        <label>Max load (${weightUnit(U())})<input name="maxLoadKg" type="number" step="any" min="0" value="${it.maxLoadKg ? weightToDisplay(it.maxLoadKg, U()) : ''}"></label>
       </div></fieldset>
       <fieldset><legend>Planning rules</legend>
         <label class="check"><input type="checkbox" name="perPerson" ${it.perPerson ? 'checked' : ''}> One per person</label>
@@ -934,12 +936,20 @@ function itemModal(existing, prefill = {}) {
         e.preventDefault();
         const f = new FormData(form);
         const category = f.get('category');
+        const keep = (field, orig, toDisp, fromDisp, digits) => {
+          const raw = String(f.get(field) ?? '').trim();
+          if (orig && raw !== '' && num(raw) === num(toDisp(orig, U()))) return orig;
+          return raw === '' ? 0 : round(fromDisp(raw, U()), digits);
+        };
         upsertItem({
           id: existing?.id || nextItemId(category), name: String(f.get('name')).trim(), category,
           icon: String(f.get('icon')).trim() || catInfo(category).icon,
-          weightKg: round(weightFromDisplay(f.get('weight'), U()), 4), qtyOwned: num(f.get('qtyOwned'), 1),
-          lengthCm: num(f.get('lengthCm')), widthCm: num(f.get('widthCm')), heightCm: num(f.get('heightCm')), volumeL: num(f.get('volumeL')),
-          capacityL: category === 'Container' ? num(f.get('capacityL')) : 0, maxLoadKg: category === 'Container' ? num(f.get('maxLoadKg')) : 0,
+          // Unchanged fields keep their stored value exactly (no drift from unit rounding).
+          weightKg: keep('weight', it.weightKg, weightToDisplay, weightFromDisplay, 4), qtyOwned: num(f.get('qtyOwned'), 1),
+          lengthCm: keep('lengthCm', it.lengthCm, lenToDisplay, lenFromDisplay, 2), widthCm: keep('widthCm', it.widthCm, lenToDisplay, lenFromDisplay, 2),
+          heightCm: keep('heightCm', it.heightCm, lenToDisplay, lenFromDisplay, 2), volumeL: keep('volumeL', it.volumeL, volSmallToDisplay, volSmallFromDisplay, 3),
+          capacityL: category === 'Container' ? keep('capacityL', it.capacityL, volSmallToDisplay, volSmallFromDisplay, 2) : 0,
+          maxLoadKg: category === 'Container' ? keep('maxLoadKg', it.maxLoadKg, weightToDisplay, weightFromDisplay, 3) : 0,
           perPerson: !!f.get('perPerson'), consumable: !!f.get('consumable'), perPersonDay: num(f.get('perPersonDay')),
           useCases: splitList(f.get('useCases')), environments: [...envs], notes: String(f.get('notes')).trim(),
         });
@@ -1177,7 +1187,7 @@ function onClick(e) {
   }
   if (d.missing !== undefined) {
     const m = state.plan.ai.suggestion.missing[+d.missing];
-    return startIntake(`Add: ${m.name}${m.estWeightKg ? ` (about ${m.estWeightKg} kg)` : ''}. ${m.reason || ''}`.trim());
+    return startIntake(`Add: ${m.name}${m.estWeightKg ? ` (about ${W(num(m.estWeightKg))})` : ''}. ${m.reason || ''}`.trim());
   }
   if (d.loadTrip || d.dupTrip) {
     const tr = state.trips.find(x => x.id === (d.loadTrip || d.dupTrip));
@@ -1293,6 +1303,7 @@ function onInput(e) {
   if (['days', 'maxVolumeL', 'resupplyDays'].includes(key)) v = Math.max(0, num(v));
   if (key === 'days') v = Math.max(1, Math.min(999, Math.round(v) || 1));
   if (key === 'maxWeightKg') v = weightFromDisplay(v, U());
+  if (key === 'maxVolumeL') v = volBigFromDisplay(v, U());
   state.plan.request[key] = v;
   commit({ dirty: false, render: false });
   $('#tripPreview').innerHTML = tripPreview();
