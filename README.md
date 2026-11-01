@@ -113,6 +113,7 @@ Excel Online access uses Microsoft sign-in, which needs a free app registration 
 3. **Edit code**, replace everything with the contents of [`worker/spec-proxy.js`](worker/spec-proxy.js), **Deploy**.
 4. Worker **Settings → Variables and Secrets → Add**:
    - `GEMINI_API_KEY`: type **Secret**, value = your key from [Google AI Studio](https://aistudio.google.com/apikey)
+   - (optional) `GEMINI_MODEL`: type **Text**, to pin a model; otherwise the newest available Gemini Flash is picked automatically
    - `ALLOWED_ORIGINS`: type **Text**, value = `https://gareto986.github.io` (add `,http://localhost:8080` to also use it locally)
 5. Copy the Worker's URL (e.g. `https://fieldpack-specs.<you>.workers.dev`) into `specProxyUrl` in [`js/config.js`](js/config.js) and push.
 

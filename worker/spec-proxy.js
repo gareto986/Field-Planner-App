@@ -8,7 +8,7 @@
 // Settings (Cloudflare dashboard → your Worker → Settings → Variables and Secrets):
 //   GEMINI_API_KEY   (Secret)  your Gemini API key from https://aistudio.google.com/apikey
 //   ALLOWED_ORIGINS  (Text)    comma-separated sites allowed to use it, e.g. https://gareto986.github.io
-//   GEMINI_MODEL     (Text, optional) defaults to gemini-2.5-flash
+//   GEMINI_MODEL     (Text, optional) pin a model; by default the newest available Gemini Flash is used
 
 const MAX_ITEMS = 8;
 const clip = (v, n) => String(v ?? '').slice(0, n);
@@ -20,6 +20,29 @@ Report numbers per single unit in metric: weightKg (convert from lb/oz/g), exter
 Put the page you used in "source". Generic items (e.g. "artifact bags", "duct tape") may have no single spec; then set verified=false and say so briefly.
 Write each "note" in ${units === 'metric' ? 'kg and cm' : 'pounds/ounces and inches'}.
 Reply with ONLY JSON: {"items":[{"index":0,"verified":true,"weightKg":0,"lengthCm":0,"widthCm":0,"heightCm":0,"capacityL":0,"source":"https://...","note":"..."}]}`;
+}
+
+// Google retires older Gemini models over time, so pick the newest available
+// "gemini-X.Y-flash" automatically (cached for the life of the Worker instance).
+let cachedModel = null;
+async function newestFlash(key) {
+  if (cachedModel) return cachedModel;
+  const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', { headers: { 'x-goog-api-key': key } });
+  const d = await res.json().catch(() => ({}));
+  const best = (d.models || [])
+    .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+    .map(m => ({ id: m.name.replace(/^models\//, ''), v: (m.name.match(/^models\/gemini-(\d+(?:\.\d+)?)-flash$/) || [])[1] }))
+    .filter(m => m.v)
+    .sort((a, b) => parseFloat(b.v) - parseFloat(a.v))[0];
+  cachedModel = best ? best.id : 'gemini-flash-latest';
+  return cachedModel;
+}
+
+async function callGemini(model, key, payload) {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(payload),
+  });
+  return { res, d: await res.json().catch(() => ({})) };
 }
 
 function cors(origin, allowed) {
@@ -54,21 +77,22 @@ export default {
     if (!items.length) return reply(400, { error: 'No items' });
 
     const listing = items.map(it => `${it.index}. ${it.name}${it.brand || it.model ? ` [brand: ${it.brand || '?'}, model: ${it.model || '?'}]` : ''} (${it.category}; current estimate ${it.weightKg} kg, ${it.lengthCm}x${it.widthCm}x${it.heightCm} cm${it.capacityL ? `, ${it.capacityL} L` : ''})`).join('\n');
-    const model = env.GEMINI_MODEL || 'gemini-2.5-flash';
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: prompt(body.units) }] },
-        tools: [{ google_search: {} }],
-        contents: [{ role: 'user', parts: [{ text: `Verify the specs for these items:\n${listing}` }] }],
-      }),
-    });
-    const d = await res.json().catch(() => ({}));
+    const payload = {
+      systemInstruction: { parts: [{ text: prompt(body.units) }] },
+      tools: [{ google_search: {} }],
+      contents: [{ role: 'user', parts: [{ text: `Verify the specs for these items:\n${listing}` }] }],
+    };
+    let model = env.GEMINI_MODEL || await newestFlash(env.GEMINI_API_KEY);
+    let { res, d } = await callGemini(model, env.GEMINI_API_KEY, payload);
+    if (!res.ok && [400, 404].includes(res.status) && /no longer available|not found|not supported/i.test(d.error?.message || '')) {
+      cachedModel = null; // model retired: look up the newest one and retry once
+      model = await newestFlash(env.GEMINI_API_KEY);
+      ({ res, d } = await callGemini(model, env.GEMINI_API_KEY, payload));
+    }
     if (!res.ok) return reply(502, { error: d.error?.message || `Gemini error ${res.status}` });
     const cand = d.candidates?.[0] || {};
     const text = (cand.content?.parts || []).map(p => p.text || '').join('');
     const sources = (cand.groundingMetadata?.groundingChunks || []).map(g => g.web).filter(Boolean).map(w => ({ url: w.uri, title: w.title || w.uri }));
-    return reply(200, { text, sources });
+    return reply(200, { text, sources, model });
   },
 };

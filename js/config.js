@@ -11,5 +11,5 @@ export const CONFIG = {
   // URL of your FieldPack spec-lookup relay (see worker/spec-proxy.js and the README).
   // When set, every visitor gets Gemini + Google Search spec checks in "Add gear with AI"
   // without needing their own key; your Gemini key stays secret on Cloudflare.
-  specProxyUrl: '',
+  specProxyUrl: 'https://fieldpack-specs.garrettsemola.workers.dev/',
 };

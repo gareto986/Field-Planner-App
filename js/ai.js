@@ -1,9 +1,9 @@
 // Bring-your-own-AI connector. Calls the provider straight from the browser
 // with the user's own key (stored only in this browser's localStorage).
-import { state, settings, itemById, catInfo } from './store.js?v=202611012256';
-import { itemVolume, planStats, packingSummary, relevance } from './planner.js?v=202611012256';
-import { round, fmtWeight, fmtVolume, fmtVolSmall, weightToDisplay, volSmallToDisplay, weightUnit, volSmallUnit } from './utils.js?v=202611012256';
-import { DEFAULT_LOCAL_MODEL, hasWebGPU, localChat, isLowMemory } from './local-ai.js?v=202611012256';
+import { state, settings, itemById, catInfo } from './store.js?v=202611012301';
+import { itemVolume, planStats, packingSummary, relevance } from './planner.js?v=202611012301';
+import { round, fmtWeight, fmtVolume, fmtVolSmall, weightToDisplay, volSmallToDisplay, weightUnit, volSmallUnit } from './utils.js?v=202611012301';
+import { DEFAULT_LOCAL_MODEL, hasWebGPU, localChat, isLowMemory } from './local-ai.js?v=202611012301';
 
 const OVH_BASE = 'https://oai.endpoints.kepler.ai.cloud.ovh.net/v1';
 const OVH_FALLBACKS = ['gpt-oss-120b', 'Meta-Llama-3_3-70B-Instruct', 'Qwen3.6-27B', 'Mistral-Small-3.2-24B-Instruct-2506', 'gpt-oss-20b'];
@@ -14,7 +14,7 @@ export const PROVIDERS = {
   openrouter:{ label: 'Free cloud models (OpenRouter)', defaultModel: 'google/gemma-4-31b-it:free', keyHint: 'sk-or-… (free account)', keyUrl: 'https://openrouter.ai/settings/keys', free: true },
   anthropic: { label: 'Anthropic Claude', defaultModel: 'claude-opus-5-5', keyHint: 'sk-ant-…', keyUrl: 'https://console.anthropic.com/settings/keys' },
   openai:    { label: 'OpenAI', defaultModel: 'gpt-4o', keyHint: 'sk-…', keyUrl: 'https://platform.openai.com/api-keys' },
-  gemini:    { label: 'Google Gemini', defaultModel: 'gemini-2.5-flash', keyHint: 'AIza…', keyUrl: 'https://aistudio.google.com/apikey' },
+  gemini:    { label: 'Google Gemini', defaultModel: 'gemini-flash-latest', keyHint: 'AIza…', keyUrl: 'https://aistudio.google.com/apikey' },
   compatible:{ label: 'OpenAI-compatible (Ollama, LM Studio, OpenRouter, Groq…)', defaultModel: 'llama3.1', keyHint: 'optional', baseUrl: 'http://localhost:11434/v1' },
 };
 
@@ -27,6 +27,32 @@ export const isLocal = () => aiConfig().provider === 'local';
 
 // Claude models that accept output_config.effort + server-side refusal fallbacks.
 const MODERN_CLAUDE = /^claude-(fable-5-1|opus-5-5|opus-5|sonnet-5-5)$/;
+
+// Pick the newest available Gemini Flash model for a key (Google retires old models over time).
+const geminiPick = {};
+async function newestGeminiFlash(key) {
+  if (geminiPick[key]) return geminiPick[key];
+  try {
+    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', { headers: { 'x-goog-api-key': key } });
+    const d = await res.json();
+    const best = (d.models || []).filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+      .map(m => ({ id: m.name.replace(/^models\//, ''), v: (m.name.match(/^models\/gemini-(\d+(?:\.\d+)?)-flash$/) || [])[1] }))
+      .filter(m => m.v).sort((a, b) => parseFloat(b.v) - parseFloat(a.v))[0];
+    geminiPick[key] = best ? best.id : 'gemini-flash-latest';
+  } catch { geminiPick[key] = 'gemini-flash-latest'; }
+  return geminiPick[key];
+}
+/** Gemini generateContent with automatic recovery when the chosen model has been retired. */
+async function geminiGenerate(c, payload) {
+  let model = c.model;
+  try {
+    return await postJSON(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, { 'x-goog-api-key': c.apiKey }, payload);
+  } catch (e) {
+    if (![400, 404].includes(e.status) || !/no longer available|not found|not supported/i.test(e.message)) throw e;
+    model = await newestGeminiFlash(c.apiKey);
+    return postJSON(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, { 'x-goog-api-key': c.apiKey }, payload);
+  }
+}
 
 async function postJSON(url, headers, body) {
   const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
@@ -63,8 +89,7 @@ export async function chat(system, messages) {
     return d.stop_reason === 'max_tokens' ? text + '\n\n_(response was cut off at the token limit)_' : text;
   }
   if (c.provider === 'gemini') {
-    const d = await postJSON(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(c.model)}:generateContent`,
-      { 'x-goog-api-key': c.apiKey },
+    const d = await geminiGenerate(c,
       { systemInstruction: { parts: [{ text: system }] }, contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })) });
     return (d.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('') || '(empty response)';
   }
@@ -176,8 +201,7 @@ export async function chatWithWebSearch(system, messages, c = nativeVerifier() |
     return { text, sources: [...sources].map(([url, title]) => ({ url, title })) };
   }
   if (c.provider === 'gemini') {
-    const d = await postJSON(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(c.model)}:generateContent`,
-      { 'x-goog-api-key': c.apiKey },
+    const d = await geminiGenerate(c,
       { systemInstruction: { parts: [{ text: system }] }, tools: [{ google_search: {} }],
         contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })) });
     const cand = d.candidates?.[0] || {};
