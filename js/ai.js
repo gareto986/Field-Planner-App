@@ -1,9 +1,9 @@
 // Bring-your-own-AI connector. Calls the provider straight from the browser
 // with the user's own key (stored only in this browser's localStorage).
-import { state, settings, itemById, catInfo } from './store.js?v=202611012221';
-import { itemVolume, planStats, packingSummary, relevance } from './planner.js?v=202611012221';
-import { round, fmtWeight, fmtVolume, fmtVolSmall, weightToDisplay, volSmallToDisplay, weightUnit, volSmallUnit } from './utils.js?v=202611012221';
-import { DEFAULT_LOCAL_MODEL, hasWebGPU, localChat, isLowMemory } from './local-ai.js?v=202611012221';
+import { state, settings, itemById, catInfo } from './store.js?v=202611012227';
+import { itemVolume, planStats, packingSummary, relevance } from './planner.js?v=202611012227';
+import { round, fmtWeight, fmtVolume, fmtVolSmall, weightToDisplay, volSmallToDisplay, weightUnit, volSmallUnit } from './utils.js?v=202611012227';
+import { DEFAULT_LOCAL_MODEL, hasWebGPU, localChat, isLowMemory } from './local-ai.js?v=202611012227';
 
 const OVH_BASE = 'https://oai.endpoints.kepler.ai.cloud.ovh.net/v1';
 const OVH_FALLBACKS = ['gpt-oss-120b', 'Meta-Llama-3_3-70B-Instruct', 'Qwen3.6-27B', 'Mistral-Small-3.2-24B-Instruct-2506', 'gpt-oss-20b'];
@@ -126,6 +126,53 @@ export async function fetchFreeModels() {
   return data.filter(m => m.id.endsWith(':free') && !/safety|guard|embed/i.test(m.id))
     .map(m => ({ id: m.id, name: m.name || m.id, context: m.context_length || 0 }))
     .sort((a, b) => (b.id === PROVIDERS.openrouter.defaultModel) - (a.id === PROVIDERS.openrouter.defaultModel) || b.context - a.context);
+}
+
+/** True when the selected AI can search the web itself (Claude web search, Gemini Google Search grounding). */
+export const hasNativeWebSearch = () => ['anthropic', 'gemini'].includes(aiConfig().provider) && !!aiConfig().apiKey;
+
+// Claude models with the dynamic-filtering web search tool; others use the basic version.
+const CLAUDE_WEB_2026 = /^claude-(opus-(5-5|5|4-8|4-7|4-6)|sonnet-(5-5|5|4-6))$/;
+
+/**
+ * Like chat(), but lets the model search the web. Returns { text, sources: [{url, title}] }.
+ * Only for providers where hasNativeWebSearch() is true.
+ */
+export async function chatWithWebSearch(system, messages) {
+  const c = aiConfig();
+  if (c.provider === 'anthropic') {
+    const headers = { 'x-api-key': c.apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' };
+    const tool = { type: CLAUDE_WEB_2026.test(c.model) ? 'web_search_20260209' : 'web_search_20250305', name: 'web_search', max_uses: 8 };
+    const convo = [...messages];
+    const sources = new Map();
+    let text = '';
+    // Server-side tool loops can pause mid-turn (stop_reason "pause_turn"); continue up to a few times.
+    for (let round = 0; round < 4; round++) {
+      const body = { model: c.model, max_tokens: 16000, system, messages: convo, tools: [tool] };
+      if (MODERN_CLAUDE.test(c.model)) body.output_config = { effort: 'medium' };
+      const d = await postJSON('https://api.anthropic.com/v1/messages', headers, body);
+      if (d.stop_reason === 'refusal') throw new Error('The model declined this request.');
+      for (const b of d.content || []) {
+        if (b.type === 'web_search_tool_result' && Array.isArray(b.content)) b.content.forEach(r => r.url && sources.set(r.url, r.title || r.url));
+        if (b.type === 'text') (b.citations || []).forEach(ci => ci.url && sources.set(ci.url, ci.title || ci.url));
+      }
+      text = (d.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
+      if (d.stop_reason !== 'pause_turn') break;
+      convo.push({ role: 'assistant', content: d.content });
+    }
+    return { text, sources: [...sources].map(([url, title]) => ({ url, title })) };
+  }
+  if (c.provider === 'gemini') {
+    const d = await postJSON(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(c.model)}:generateContent`,
+      { 'x-goog-api-key': c.apiKey },
+      { systemInstruction: { parts: [{ text: system }] }, tools: [{ google_search: {} }],
+        contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })) });
+    const cand = d.candidates?.[0] || {};
+    const text = (cand.content?.parts || []).map(p => p.text || '').join('');
+    const sources = (cand.groundingMetadata?.groundingChunks || []).map(g => g.web).filter(Boolean).map(w => ({ url: w.uri, title: w.title || w.uri }));
+    return { text, sources };
+  }
+  throw new Error('This AI has no built-in web search.');
 }
 
 export async function testConnection() {

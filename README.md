@@ -16,7 +16,7 @@ The look is inspired by the California Channel Islands: deep channel blues, kelp
 | ⚡ **Auto-pack** | A local engine scores every item against the trip and computes quantities (per person, per person per day for consumables). It trims to your weight and volume limits, chooses containers, then bin-packs items into them. |
 | 🎒 **Pack Board** | A visual load-out. Bags fill up as you pack. Drag gear from the shelf into containers, and use the weight, container-fill and transport-volume gauges, the weight-by-category bar, and the over-limit and over-owned warnings. |
 | 🤖 **AI analyst** | Sends the trip brief, your full inventory and the current board to Claude, OpenAI, Gemini, or any OpenAI-compatible endpoint (Ollama, LM Studio, OpenRouter…). You get back a Markdown plan with a packing table, a weight check, risks and gaps, and consumables. You can apply its machine-readable packing list to the board in one click, add its suggested missing items to inventory, and ask follow-up questions. |
-| 🤖 **Add gear with AI** | Describe gear in plain words ("two 1/8 inch screens and 500 artifact bags"). The AI drafts complete records, estimating typical weights and sizes, and asks short follow-up questions when something that matters (quantity, model/size, container capacity) is unclear. Review and edit the draft, then add it in one click. |
+| 🤖 **Add gear with AI** | Describe gear in plain words ("two 1/8 inch screens and 500 artifact bags"). The AI drafts complete records, estimating typical weights and sizes, and asks short follow-up questions when something that matters (quantity, model/size, container capacity) is unclear. Then it **checks weights and dimensions against manufacturer specs on the web**: Claude uses its built-in web search and Gemini uses Google Search grounding; the free AIs read the manufacturer's product page (and Marginalia search results when available) through Jina Reader and extract specs only from that page text. Each row shows ✅ verified (with the source link, saved in the item's notes) or ≈ estimate. Review and edit the draft, then add it in one click. |
 | 🧾 **Inventory** | Card grid with search, category filters and sort. Quick-add bar, plus a detailed editor with an emoji picker, dimensions, container capacity and max load, per-person and consumable rules, and use-case and environment tags. |
 | 📜 **History** | Every saved trip goes to the workbook's **Trips** sheet, with its requirements, totals, packing list and AI analysis. You can reopen, duplicate or change the status (planned → packed → in field → completed). |
 | 📗 **Excel sync** | **Local file:** in Chrome or Edge the app reads and **writes back into the same .xlsx file** (File System Access API), with optional auto-save; other browsers download an updated copy. **Excel Online:** open and save workbooks in **OneDrive or SharePoint/Teams** after signing in with Microsoft (browse recent workbooks, open from a share link, or create one in OneDrive). Saves are conflict-safe: if a teammate changed the file in Excel Online meanwhile, you're asked before anything is overwritten. Other sheets in your workbook are always left alone. |
@@ -80,6 +80,10 @@ For confidential trips there's also a **free built-in AI**: an open-weight model
 
 > Because calls run in the browser, anyone using this machine's browser profile can use the stored key. Use a key with a spending limit, or a local model.
 
+## Units
+
+FieldPack defaults to **imperial**: pounds/ounces, inches, cubic inches for item and pack volumes, and cubic feet for totals and limits. Switch to metric in **Settings → Preferences**. Values are stored internally in metric, and the Excel workbook is written with unit-labelled headers (e.g. `Weight (lb)`); when reading, FieldPack converts any unit in a header (kg, g, lb, oz, cm, mm, in, L, cu in, cu ft, gal).
+
 ## Excel Online setup (OneDrive / SharePoint)
 
 **No Entra access? Use OneDrive sync (no setup, no admin).** Any workbook you own or can edit in OneDrive, SharePoint or Teams works:
@@ -127,7 +131,9 @@ js/planner.js         auto-pack engine, bin packing, plan statistics
 js/excel.js           SheetJS read/write, file handles, column mapping
 js/ai.js              provider adapters, trip-brief prompt, JSON plan parsing
 js/local-ai.js        free in-browser AI (WebLLM / WebGPU)
-js/intake.js          "Add gear with AI" (drafts items, asks follow-up questions)
+js/intake.js          "Add gear with AI" (drafts items, asks follow-up questions, verifies specs)
+js/websearch.js       free web lookup for spec verification (Jina Reader + Marginalia)
+js/emoji.js           icon library, search and name-based icon suggestions
 js/onedrive.js        Excel Online: Microsoft sign-in (MSAL) + Microsoft Graph file access
 js/config.js          site-wide settings for a published copy (Microsoft Client ID)
 auth-redirect.html    Microsoft sign-in redirect page
