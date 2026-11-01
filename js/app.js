@@ -14,7 +14,7 @@ let aiBusy = false;
 let pendingHandle = null;
 
 const ENV_ICONS = { island: '🏝️', desert: '🏜️', forest: '🌲', mountain: '🏔️', wetland: '🦆', coastal: '🌊', arctic: '❄️', tropical: '🌴', grassland: '🌾', urban: '🏙️' };
-const ACT_ICONS = { hiking: '🥾', backpacking: '🎒', camping: '🏕️', survey: '📋', sampling: '🧪', research: '🔬', wildlife: '🦌', photography: '📷',
+const ACT_ICONS = { survey: '🚶', excavation: '⛏️', testing: '🕳️', screening: '🧺', mapping: '🗺️', 'site-recording': '📋', monitoring: '👀', hiking: '🥾', backpacking: '🎒', camping: '🏕️', sampling: '🧪', research: '🔬', wildlife: '🦌', photography: '📷',
   boat: '🚤', kayak: '🛶', 'sea-kayak': '🛶', snorkel: '🤿', tidepooling: '🦀', birding: '🐦', cooking: '🍳', 'day-trip': '☀️', overnight: '🌙', remote: '📡', basecamp: '⛺' };
 
 // =====================================================================
@@ -61,11 +61,11 @@ function viewPlanner() {
   return `
   <section class="planner">
     <div class="card planner-form">
-      <div class="card-head"><h2>🗺️ Quick Planner</h2><span class="muted">Describe the trip; FieldPack and your AI will build the load-out.</span></div>
+      <div class="card-head"><h2>🗺️ Quick Planner</h2><span class="muted">Describe the field trip; FieldPack and your AI will build the crew's load-out.</span>${scaleBar()}</div>
       <div class="step"><span class="step-n">1</span><h3>The basics</h3></div>
       <div class="grid2">
-        <label>Trip name<input data-req="name" value="${esc(r.name)}" placeholder="e.g. Santa Cruz Island sea-cave weekend"></label>
-        <label>Destination<input data-req="destination" value="${esc(r.destination)}" placeholder="e.g. Scorpion Ranch, Santa Cruz Island"></label>
+        <label>Trip name<input data-req="name" value="${esc(r.name)}" placeholder="e.g. Santa Rosa Island midden testing, spring season"></label>
+        <label>Destination<input data-req="destination" value="${esc(r.destination)}" placeholder="e.g. Santa Rosa Island, Channel Islands NP"></label>
         <label>Start date<input type="date" data-req="startDate" value="${esc(r.startDate)}"></label>
         <div class="grid2 tight">
           <label>Days <span class="big-num" id="daysOut">${r.days}</span><input type="range" min="1" max="21" data-req="days" value="${r.days}"></label>
@@ -87,8 +87,8 @@ function viewPlanner() {
       <p class="muted small">${lim ? `Preset for ${r.people} ${r.people > 1 ? 'people' : 'person'}: ${W(lim.kg)} / ${V(lim.l)}. Edit to override.` : 'Custom limits.'}</p>
       <div class="step"><span class="step-n">5</span><h3>Requirements</h3></div>
       <div class="grid2">
-        <label>Must-haves <textarea data-req="mustHaves" rows="3" placeholder="One per line, e.g. soil probe, satellite messenger">${esc(r.mustHaves)}</textarea></label>
-        <label>Other notes for the AI <textarea data-req="notes" rows="3" placeholder="Expected weather, hazards, permits, water sources, sample counts…">${esc(r.notes)}</textarea></label>
+        <label>Must-haves <textarea data-req="mustHaves" rows="3" placeholder="One per line, e.g. 1/8 screen, Munsell chart, GNSS receiver">${esc(r.mustHaves)}</textarea></label>
+        <label>Other notes for the AI <textarea data-req="notes" rows="3" placeholder="Sites & units planned, expected finds/samples, permit conditions, landing & water logistics…">${esc(r.notes)}</textarea></label>
       </div>
       <div class="actions">
         <button class="btn primary big" data-action="autopack">⚡ Auto-pack from inventory</button>
@@ -128,11 +128,22 @@ function sceneSVG(env, people, vehicle) {
       ${sc.arch ? `<path d="M14 92 L16 70 C19 62 38 60 46 67 L50 92 L42 92 L41 80 C38 73 27 73 25 80 L23 92Z" fill="${sc.near}"/><path d="M15 72 C19 63 38 61 47 68 L46 71 C38 64 21 65 16 74Z" fill="${sc.top}"/>` : ''}
       <path d="${land}" fill="${sc.near}"/>
       <path d="${land.replace(/ L200 120 L0 120Z$/, '')}" fill="none" stroke="${sc.top}" stroke-width="4" stroke-linecap="round"/>
+      <g class="dig" aria-hidden="true">
+        <ellipse cx="114" cy="104" rx="12" ry="4" fill="#efe6d2"/>
+        <g fill="#fff8ea">${[[106,103],[110,101],[115,102],[119,104],[112,105],[117,100],[108,106],[121,102]].map(([x, y]) => `<ellipse cx="${x}" cy="${y}" rx="1.6" ry="1"/>`).join('')}</g>
+        <path d="M150 99 L176 99 L178 106 L148 106 Z" fill="#5a3b22"/>
+        <path d="M150 99 L176 99" stroke="#3b2614" stroke-width="1"/>
+        <path d="M156.5 99 V106 M163 99 V106 M169.5 99 V106 M149 102.5 H177" stroke="#f4e3b5" stroke-width=".5" opacity=".75"/>
+        <path d="M150 99 V95 M176 99 V95 M150 95 H176" stroke="#f4e3b5" stroke-width=".8"/>
+        <path d="M181 103 q6 -9 12 0 Z" fill="#8a5a33"/>
+        <g stroke="#3b2614" stroke-width=".7"><path d="M131 104 V95"/><path d="M139 107 V98"/><path d="M96 110 V101"/></g>
+        <g fill="#e0483a"><path d="M131 95 l5 1.5 -5 1.5Z"/><path d="M139 98 l5 1.5 -5 1.5Z"/><path d="M96 101 l5 1.5 -5 1.5Z"/></g>
+      </g>
       <g fill="none" stroke="#fff" stroke-opacity=".7" stroke-width="1.2" class="birds"><path d="M40 28 q4 -4 8 0 q4 -4 8 0"/><path d="M62 20 q3 -3 6 0 q3 -3 6 0"/></g>
     </svg>
     <span class="f1">${sc.fauna[0]}</span><span class="f2">${sc.fauna[1]}</span><span class="f3">${sc.fauna[2]}</span>
     ${sc.water ? `<span class="boat">${vehicle === '⛴️' || vehicle === '🛶' ? vehicle : '⛵'}</span>` : ''}
-    <div class="walkers">${'🧑‍🦱'.repeat(Math.min(people, 5))}${people > 5 ? `<small>+${people - 5}</small>` : ''}${sc.water ? '' : `<span class="vehicle">${vehicle}</span>`}</div>
+    <div class="walkers">${'🧑‍🔬'.repeat(Math.min(people, 5))}${people > 5 ? `<small>+${people - 5}</small>` : ''}${sc.water ? '' : `<span class="vehicle">${vehicle}</span>`}</div>
   </div>`;
 }
 
@@ -143,8 +154,8 @@ function tripPreview() {
   const t = TRANSPORT[r.transport] || TRANSPORT.custom;
   return `
     ${sceneSVG(env, r.people, t.icon)}
-    <h3>${esc(r.name || 'Untitled trip')}</h3>
-    <p class="muted">${esc(r.destination || 'Somewhere wild & salty')}${r.startDate ? ` · ${esc(r.startDate)}` : ''}</p>
+    <h3>${esc(r.name || 'Untitled field trip')}</h3>
+    <p class="muted">${esc(r.destination || 'Somewhere with good context')}${r.startDate ? ` · ${esc(r.startDate)}` : ''}</p>
     <div class="stat-row">
       <div><b>${r.days}</b><span>days</span></div><div><b>${r.people}</b><span>people</span></div>
       <div><b>${W(r.maxWeightKg)}</b><span>weight cap</span></div><div><b>${round(r.maxVolumeL, 0)} L</b><span>space cap</span></div>
@@ -154,8 +165,32 @@ function tripPreview() {
     <p class="small"><b>Current load-out:</b> ${s.count} items · ${state.plan.containers.length} containers · ${W(s.totalKg)}
       ${r.maxWeightKg ? `(${Math.round(s.weightPct * 100)}% of cap)` : ''}</p>
     ${miniBar(s.weightPct)}
+    ${strata()}
     <p class="muted small">Inventory: ${state.items.length} items in ${state.workbook.connected ? esc(state.workbook.name) : 'browser storage'}.</p>`;
 }
+
+// Site-map style scale bar + north arrow.
+const scaleBar = () => `<svg class="scalebar" viewBox="0 0 132 30" aria-hidden="true">
+  <g transform="translate(4 14)">${[0, 1, 2, 3, 4].map(i => `<rect x="${i * 20}" y="0" width="20" height="6" fill="${i % 2 ? 'var(--card)' : 'var(--ink)'}" stroke="var(--ink)" stroke-width="1.2"/>`).join('')}
+  <text x="0" y="15" class="sb-t">0</text><text x="100" y="15" class="sb-t" text-anchor="end">5 m</text></g>
+  <g transform="translate(118 3)"><path d="M6 0 L11 18 L6 14 L1 18 Z" fill="var(--fox)" stroke="var(--ink)" stroke-width="1"/><text x="6" y="27" text-anchor="middle" class="sb-n">N</text></g>
+</svg>`;
+
+// Decorative stratigraphic profile (Munsell-ish soil layers with a few finds),
+// drawn as a seamless tile so it repeats at any width without distortion.
+const STRATA_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 60" width="600" height="60">
+  <rect width="600" height="60" fill="#e7d3a8"/>
+  <path d="M0 10 C80 6 140 14 220 10 S380 4 460 10 S560 14 600 10 V60 H0Z" fill="#7a5638"/>
+  <path d="M0 24 C90 20 160 30 250 25 S420 18 500 25 S570 30 600 24 V60 H0Z" fill="#a8774a"/>
+  <path d="M0 40 C70 36 170 44 260 40 S430 34 520 41 S580 44 600 40 V60 H0Z" fill="#cdb084"/>
+  <path d="M0 52 C100 49 200 55 300 52 S500 48 600 52 V60 H0Z" fill="#9d8f7a"/>
+  <g fill="#fff6e6" opacity=".9">${[[40, 16], [62, 18], [90, 15], [150, 19], [176, 16], [330, 14], [355, 18], [520, 17], [545, 15]].map(([x, y]) => `<ellipse cx="${x}" cy="${y}" rx="4" ry="2.2"/>`).join('')}</g>
+  <path d="M262 30 l6 -3 l7 3 l-6 4 Z" fill="#3c3a3f"/>
+  <path d="M410 33 l3 -6 l3 6 l-3 9 Z" fill="#2b2b30"/>
+  <circle cx="470" cy="47" r="2" fill="#3b2614"/><circle cx="120" cy="46" r="1.6" fill="#3b2614"/>
+</svg>`;
+const STRATA_URL = `url("data:image/svg+xml,${encodeURIComponent(STRATA_SVG)}")`;
+const strata = () => `<div class="strata" style='background-image:${STRATA_URL}' aria-hidden="true"></div>`;
 
 const miniBar = pct => `<div class="minibar"><i style="width:${Math.min(100, pct * 100)}%;background:${pctColor(pct)}"></i></div>`;
 const pctColor = p => p > 1 ? 'var(--bad)' : p > 0.85 ? 'var(--warn)' : 'var(--good)';
@@ -209,7 +244,8 @@ function viewBoard() {
   return `
   <section class="board-head card">
     <div class="trip-title">
-      <h2>🎒 ${esc(r.name || 'Untitled trip')}</h2>
+      <h2>🎒 ${esc(r.name || 'Untitled field trip')}</h2>
+      ${scaleBar()}
       <p class="muted">${esc(r.destination || 'No destination')} · ${r.days} days · ${r.people} people · ${TRANSPORT[r.transport]?.icon || ''} ${esc(TRANSPORT[r.transport]?.label || r.transport)}
         <button class="link" data-action="go-planner">edit requirements</button></p>
       <div class="row wrap">
@@ -222,11 +258,12 @@ function viewBoard() {
     </div>
     <div class="gauges">
       ${gauge('Weight', s.weightPct, W(s.totalKg), `of ${W(r.maxWeightKg)} · ${W(s.kgPerPerson)}/person`)}
-      ${gauge('Container fill', s.spacePct, `${round(s.gearL - s.looseL, 1)} L`, `of ${round(s.capacityL, 1)} L capacity`)}
+      ${gauge('Container fill', s.spacePct, `${round(s.spacePct * s.capacityL, 1)} L`, `of ${round(s.capacityL, 1)} L capacity`)}
       ${gauge('Transport volume', s.transportPct, V(s.transportL), `of ${V(r.maxVolumeL)} allowed`)}
     </div>
     <div class="cat-wrap">${categoryBar(s.byCat, s.totalKg)}</div>
     ${warnings.length ? `<div class="warnings">${warnings.map(w => `<span>⚠️ ${esc(w)}</span>`).join('')}</div>` : ''}
+    <div class="strata-wrap">${strata()}</div>
   </section>
 
   <section class="board">
@@ -371,8 +408,9 @@ function viewHistory() {
     <div class="card-head"><h2>📜 Trip history</h2><span class="muted">Stored in the <b>Trips</b> sheet of your workbook.</span></div>
     <div class="history">
     ${trips.map(t => `<article class="trip-card">
+      <div class="tag-head"><span class="hole"></span>FIELD TAG <span>${esc(t.id)}</span></div>
       <div class="trip-top"><b>${esc(t.name || 'Untitled trip')}</b><span class="status s-${esc(t.status || 'planned')}">${esc(t.status || 'planned')}</span></div>
-      <p class="muted small">${esc(t.id)} · saved ${esc(String(t.created).slice(0, 16).replace('T', ' '))}</p>
+      <p class="muted small">Recorded ${esc(String(t.created).slice(0, 16).replace('T', ' '))}</p>
       <p>📍 ${esc(t.destination || '-')} · 📅 ${esc(t.startDate || '-')} · ${t.days}d · 👥 ${t.people}</p>
       <p class="small">⚖️ ${W(t.totalWeightKg || 0)} / ${W(t.maxWeightKg || 0)} · ${(t.environments || []).map(e => ENV_ICONS[e] || e).join(' ')} ${(t.activities || []).map(a => ACT_ICONS[a] || '').join('')}</p>
       ${t.aiAnalysis ? `<p class="small">🤖 AI analysis by ${esc(t.aiProvider || '')} ${esc(t.aiModel || '')}</p>` : ''}
@@ -383,7 +421,7 @@ function viewHistory() {
         <select class="small" data-trip-status="${esc(t.id)}">${['planned', 'packed', 'in field', 'completed', 'cancelled'].map(s => `<option ${t.status === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
         <button class="btn small ghost danger-text" data-del-trip="${esc(t.id)}">Delete</button>
       </div>
-    </article>`).join('') || '<div class="empty"><div class="big-emoji">🏕️</div><p>No trips saved yet. Build a plan and hit <b>Save trip to history</b>.</p></div>'}
+    </article>`).join('') || '<div class="empty"><div class="big-emoji">🏺</div><p>No field trips recorded yet. Build a plan and hit <b>Save trip to history</b>.</p></div>'}
     </div></section>`;
 }
 
@@ -760,9 +798,9 @@ const autosave = debounce(() => {
 
 function welcome() {
   openModal(`<div class="welcome">
-    <div class="big-emoji">🏝️🦊🎒</div>
+    <div class="big-emoji">🏝️🏺⛏️</div>
     <h2>Welcome to FieldPack</h2>
-    <p>From a ferry ride out to the islands to a week of backcountry fieldwork: plan trips from your real gear. Your inventory and trip history live in an Excel workbook, and your AI of choice does the heavy analysis.</p>
+    <p>From a ferry ride out to the islands for survey to a week of excavation, plan field trips from your real kit. Your inventory and trip history live in an Excel workbook, and your AI of choice does the heavy analysis.</p>
     <div class="welcome-actions">
       <button class="btn primary big" data-w="open">📂 Open my Excel database</button>
       <button class="btn accent big" data-w="new">✨ Create a new database (with sample gear)</button>

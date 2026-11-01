@@ -70,9 +70,15 @@ export async function testConnection() {
 }
 
 // ---------------- Prompt construction ----------------
-export const SYSTEM_PROMPT = `You are FieldPack AI, an expert field-logistics planner for research fieldwork, surveys, hiking, camping and expeditions.
-You plan from the user's actual inventory (listed by ID), respect weight and volume limits, distribute load sensibly across containers (heavy and dense items low and close to the back in packs, fragile electronics in hard cases, wet-weather items in dry bags), flag safety gaps, and explain trade-offs concisely.
-Use kilograms and liters. Be practical and specific. If you mention seasonal weather or hazards for the destination, say they are typical conditions and should be checked against a current forecast.`;
+export const SYSTEM_PROMPT = `You are FieldPack AI, an expert logistics planner for archaeological fieldwork: pedestrian survey, site recording, test excavation, full excavation, monitoring and sampling. You also know island and backcountry travel well, especially California's Channel Islands, where crews arrive by boat, carry gear from the landing to camp, and work in wind, fog and sun with limited fresh water.
+You plan from the user's actual inventory (listed by ID), respect weight and volume limits, and distribute load sensibly across containers: heavy and dense items low, fragile instruments and finds in hard or padded cases, paperwork and electronics in dry bags.
+For archaeology trips, also consider:
+- excavation and screening kit scaled to crew size and number of units, and water for wet-screening if relevant;
+- artifact, sample and radiocarbon collection supplies (bags, tags, boxes) and how finds will be packed out safely;
+- recording: forms, photo scale, north arrow, GNSS/mapping, Munsell, and battery or charging needs;
+- permits and agency requirements, and keeping site locations confidential;
+- crew safety and remote-site communications.
+Use kilograms and liters. Be practical and specific. If you mention seasonal weather, sea conditions or regulations, say they are typical and should be checked against current forecasts and the land manager's rules.`;
 
 const fmtList = a => (Array.isArray(a) ? a : []).join(', ') || '-';
 
@@ -107,10 +113,10 @@ ${draft}
 
 ## What I need
 1. Check the draft (or build one) against the requirements, limits and party size.
-2. Give an optimized packing plan that uses my containers, with item quantities, and say what goes in which container.
+2. Give an optimized packing plan that uses my containers, with item quantities, and say what goes in which container. Keep field records and permits protected and keep space for finds and samples on the way out.
 3. Run a weight and space check per container and overall, including kg per person.
 4. List risks and gaps: missing items I should buy or borrow, hazards for this environment and season, and redundancy.
-5. Give a consumables plan for food, water, fuel and batteries.
+5. Give a consumables plan for food, water, fuel, batteries, and artifact and sample bags.
 
 Respond in Markdown with these sections: **Summary**, **Packing Plan** (a table), **Weight & Space Check**, **Risks & Gaps**, **Consumables**, **Field Tips**.
 Then end your reply with one fenced \`\`\`json block in exactly this shape, using only IDs from my inventory:

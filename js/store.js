@@ -3,6 +3,7 @@
 import { uid } from './utils.js';
 
 export const CATEGORIES = {
+  Archaeology: { icon: '🏺', color: '#b4532a' },  // terracotta
   Container:   { icon: '🎒', color: '#0b5e7e' },  // deep ocean
   Clothing:    { icon: '🧥', color: '#f0624d' },  // sunset coral
   Shelter:     { icon: '⛺', color: '#4f7d3a' },  // kelp
@@ -21,12 +22,12 @@ export const CATEGORIES = {
 export const catInfo = c => CATEGORIES[c] || CATEGORIES.Other;
 
 export const ENVIRONMENTS = ['island', 'coastal', 'desert', 'forest', 'mountain', 'wetland', 'arctic', 'tropical', 'grassland', 'urban'];
-export const ACTIVITIES = ['hiking', 'backpacking', 'camping', 'survey', 'sampling', 'research', 'wildlife', 'photography', 'boat', 'sea-kayak', 'snorkel', 'tidepooling', 'birding', 'cooking', 'day-trip', 'overnight', 'remote', 'basecamp'];
+export const ACTIVITIES = ['survey', 'excavation', 'testing', 'screening', 'mapping', 'site-recording', 'monitoring', 'sampling', 'hiking', 'backpacking', 'camping', 'research', 'wildlife', 'photography', 'boat', 'sea-kayak', 'snorkel', 'tidepooling', 'birding', 'cooking', 'day-trip', 'overnight', 'remote', 'basecamp'];
 
 // Transport presets: limits are per person (multiplied by party size) unless `total` is set.
 export const TRANSPORT = {
   foot:    { label: 'On foot (backpacks)', icon: '🥾', kgPerPerson: 15, lPerPerson: 70 },
-  ferry:   { label: 'Island ferry + carry to camp', icon: '⛴️', kgPerPerson: 20, lPerPerson: 100 },
+  ferry:   { label: 'Island ferry + carry to camp', icon: '⛴️', kgPerPerson: 25, lPerPerson: 120 },
   vehicle: { label: '4x4 / Truck', icon: '🛻', total: true, kg: 400, l: 1500 },
   canoe:   { label: 'Canoe / Kayak', icon: '🛶', kgPerPerson: 45, lPerPerson: 180 },
   plane:   { label: 'Small bush plane', icon: '🛩️', kgPerPerson: 23, lPerPerson: 140 },
@@ -39,9 +40,9 @@ const STATE_KEY = 'fieldpack.state.v1';
 const SETTINGS_KEY = 'fieldpack.settings.v1';
 
 export const defaultRequest = () => ({
-  name: '', destination: '', startDate: '', days: 2, people: 2,
-  environments: [], activities: [], transport: 'ferry',
-  maxWeightKg: 40, maxVolumeL: 200, mustHaves: '', notes: '',
+  name: '', destination: '', startDate: '', days: 5, people: 4,
+  environments: ['island'], activities: ['survey', 'excavation', 'camping', 'overnight'], transport: 'ferry',
+  maxWeightKg: 100, maxVolumeL: 480, mustHaves: '', notes: '',
 });
 
 export const emptyPlan = () => ({

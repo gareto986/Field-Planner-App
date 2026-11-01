@@ -188,7 +188,7 @@ export function planStats(plan = state.plan) {
     totalKg, gearKg, containerKg, gearL, capacityL, looseL, transportL, count, byCat, perContainer, shortages, overfull,
     kgPerPerson: totalKg / Math.max(1, req.people || 1),
     weightPct: req.maxWeightKg ? totalKg / req.maxWeightKg : 0,
-    spacePct: capacityL ? (gearL - looseL) / capacityL : (gearL ? 1 : 0),
+    spacePct: capacityL ? Object.values(perContainer).reduce((t, c) => t + c.usedL, 0) / capacityL : 0,
     transportPct: req.maxVolumeL ? transportL / req.maxVolumeL : 0,
   };
 }

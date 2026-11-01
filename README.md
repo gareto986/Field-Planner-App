@@ -1,8 +1,10 @@
-# 🏝️🦊 FieldPack: island & field-trip planner
+# 🏝️🏺 FieldPack: island archaeology trip planner
 
-A web app for planning trips into the field. It uses **your Excel workbook as the database** of gear (supplies, containers, clothing, tools and so on) and connects to **the AI of your choice** for detailed trip analysis.
+A web app for planning archaeological field trips (survey, testing, excavation, monitoring), with a soft spot for the California Channel Islands. It uses **your Excel workbook as the database** of gear (supplies, containers, clothing, tools and so on) and connects to **the AI of your choice** for detailed trip analysis.
 
 The look is inspired by the California Channel Islands: deep channel blues, kelp greens, island-fox orange, coreopsis gold and sandstone, on topo-map paper with chunky outdoor-gear buttons. It has an island terrain with an animated sea-arch scene, a ferry transport preset, and snorkel, sea-kayak, tidepooling and birding activities, plus island-ready sample gear (wetsuit, PFD, marine VHF, animal-proof food canister, sand stakes and more). It supports light and dark ("night at anchor") modes.
+
+**Archaeology defaults:** new trips start as a 5-day island trip by ferry for a crew of 4, planned around survey and excavation. The sample inventory includes an **Archaeology** kit: trowels, 1/8" and 1/4" shaker screens, buckets, line level and unit stakes, tapes, Munsell chart, pin flags, artifact bags and tags, photo scale and north arrow, field forms, permits binder, sub-meter GNSS, kneeling pads, specimen boxes and a mattock. The AI is prompted as an archaeology logistics planner: it scales screening kit to the crew, plans for packing finds and samples out, covers recording, permits and site confidentiality, and island landing and water constraints. Visual touches include an excavation unit, shell midden and pin flags in the trip scene, a site-map scale bar with north arrow, a stratigraphic-profile strip, and history entries styled as field tags.
 
 ![tabs](https://img.shields.io/badge/views-Quick%20Plan%20·%20Pack%20Board%20·%20Inventory%20·%20History%20·%20Settings-2f6f4e)
 

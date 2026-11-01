@@ -405,3 +405,21 @@ details summary { cursor: pointer; font-weight: 800; margin-top: .8rem; }
   .pill { max-width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before { animation: none !important; transition: none !important; } }
+
+/* ---------- Archaeology flair ---------- */
+.scalebar { width: 132px; height: 30px; margin-left: auto; flex: none; }
+.trip-title .scalebar { float: right; margin: -.2rem 0 0 .8rem; }
+.sb-t { font-size: 8px; font-weight: 900; fill: var(--ink); font-family: var(--font); }
+.sb-n { font-size: 9px; font-weight: 900; fill: var(--ink); font-family: var(--display); }
+.strata { display: block; width: 100%; height: 46px; border-radius: 10px; border: 2px solid var(--ink); margin: .9rem 0 .6rem; background-repeat: repeat-x; background-size: auto 100%; background-position: left center; }
+.strata-wrap { grid-column: 1 / -1; }
+.strata-wrap .strata { height: 28px; margin: .2rem 0 0; }
+.trip-card { padding-top: 0; }
+.tag-head {
+  display: flex; align-items: center; gap: .5rem; margin: 0 -1rem .6rem -1.2rem; padding: .35rem 1rem .35rem 1.2rem;
+  background: repeating-linear-gradient(-45deg, color-mix(in srgb, #b4532a 14%, transparent) 0 6px, transparent 6px 12px);
+  border-bottom: 2px dashed var(--line); font: 900 .72rem var(--font); letter-spacing: .14em; color: #b4532a;
+}
+.tag-head span:last-child { margin-left: auto; letter-spacing: .04em; color: var(--muted); }
+.tag-head .hole { width: 12px; height: 12px; border-radius: 50%; background: var(--bg); border: 2px solid var(--line); box-shadow: inset 0 1px 2px rgba(0,0,0,.2); }
+.trip-card { background: linear-gradient(90deg, #b4532a 0 6px, transparent 6px), color-mix(in srgb, var(--sand) 22%, var(--card)); }
