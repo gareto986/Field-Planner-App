@@ -6,8 +6,8 @@
 // Pages are read as text via Jina Reader (keyless). When a page has no specs but
 // links to the product (search results, category pages), the best-matching links
 // are followed one hop.
-import { CONFIG } from './config.js?v=202611012304';
-import { settings } from './store.js?v=202611012304';
+import { CONFIG } from './config.js?v=202611012314';
+import { settings } from './store.js?v=202611012314';
 
 const TIMEOUT_MS = 20000;
 
@@ -75,11 +75,30 @@ export async function searchWeb(query, count = 5) {
 }
 let marginaliaDownUntil = 0;
 
+// Social media, video and forum pages aren't reliable spec sources.
+const LOW_QUALITY = /(^|\.)(facebook|instagram|tiktok|pinterest|quora|youtube|youtu|twitter|x|reddit|threads)\.(com|be)$/i;
+export const isLowQuality = url => { try { return LOW_QUALITY.test(new URL(url).hostname); } catch { return true; } };
+const hostOf = url => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; } };
+export const onDomain = (url, domain) => !!domain && hostOf(url).endsWith(String(domain).replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, ''));
+
+// Jina Reader's free tier allows ~20 reads/minute: keep at most 3 in flight and retry once when throttled.
+let active = 0;
+const waiting = [];
+async function paced(fn) {
+  if (active >= 3) await new Promise(r => waiting.push(r));
+  active++;
+  try { return await fn(); } finally { active--; waiting.shift()?.(); }
+}
+
 /** Read a web page as text via Jina Reader. Returns {url, title, text} or null. */
 export async function readPage(url) {
-  if (!/^https?:\/\//i.test(url || '')) return null;
+  if (!/^https?:\/\//i.test(url || '') || isLowQuality(url)) return null;
   try {
-    const res = await fetchWithTimeout(`https://r.jina.ai/${url}`, { headers: { Accept: 'application/json' } });
+    let res = await paced(() => fetchWithTimeout(`https://r.jina.ai/${url}`, { headers: { Accept: 'application/json' } }));
+    if (res.status === 429 || res.status >= 500) {
+      await new Promise(r => setTimeout(r, 3000));
+      res = await paced(() => fetchWithTimeout(`https://r.jina.ai/${url}`, { headers: { Accept: 'application/json' } }));
+    }
     if (!res.ok) return null;
     const d = (await res.json()).data || {};
     const text = String(d.content || '');
@@ -147,19 +166,31 @@ export function labeledSpecLines(text) {
     .filter(l => l.length < 300 && LABEL_RE.test(l) && NUM_UNIT_RE.test(l));
 }
 
-/** Does this page actually talk about this product (not a menu, cookie banner or a different product)? */
-function isAboutProduct(page, tokens) {
-  const head = `${page.title} ${page.url} ${page.text.slice(0, 3000)}`.toLowerCase();
-  if (tokens.models.length) return tokens.models.some(m => head.includes(m) || page.text.toLowerCase().includes(m));
-  const words = tokens.all.filter(t => t.length > 2);
-  return words.length ? words.filter(t => head.includes(t)).length / words.length >= 0.6 : false;
+/**
+ * Does this page actually talk about THIS product (not a menu, cookie banner or a sibling product)?
+ * The page title/URL must carry the product's identity: its model number, or most of the
+ * distinctive words of its model/name (e.g. "big river" for a Big River dry bag).
+ */
+function isAboutProduct(page, tokens, it) {
+  const id = `${page.title} ${decodeURIComponent(page.url).replace(/[-_/]+/g, ' ')}`.toLowerCase();
+  const brand = String(it?.brand || '').toLowerCase().split(/\s+/);
+  const words = String(it?.model || it?.name || '').toLowerCase().split(/[^a-z0-9.]+/)
+    .filter(t => t.length > 1 && !STOP.has(t) && !brand.includes(t));
+  const numeric = words.filter(t => /\d/.test(t) && (/[a-z]/.test(t) || t.length >= 3));
+  if (numeric.some(m => id.includes(m))) {
+    // model number matches; also require the non-numeric model words if any (e.g. "aether" in "aether 65")
+    const alpha = words.filter(t => !/\d/.test(t));
+    return !alpha.length || alpha.filter(t => id.includes(t)).length / alpha.length >= 0.7;
+  }
+  const hits = words.filter(t => id.includes(t)).length;
+  return words.length ? hits / words.length >= 0.6 : tokens.all.filter(t => id.includes(t)).length >= 2;
 }
 
 /** Score a page as evidence: must be about the product AND have labeled spec lines. */
-function evidenceScore(page, tokens) {
-  if (!isAboutProduct(page, tokens)) return 0;
+function evidenceScore(page, tokens, it) {
+  if (!isAboutProduct(page, tokens, it)) return 0;
   const n = labeledSpecLines(page.text).length;
-  return n ? 5 + n + matchScore(`${page.title} ${page.url}`, tokens) : 0;
+  return n ? 5 + Math.min(n, 8) + matchScore(`${page.title} ${page.url}`, tokens) + (onDomain(page.url, it?.domain) ? 8 : 0) : 0;
 }
 
 /**
@@ -178,7 +209,7 @@ export async function gatherEvidence(items, { pagesPerItem = 2, charsPerPage = 2
     };
     const consider = (p, fromSearch = false) => {
       if (!p) return;
-      const score = evidenceScore(p, tokens);
+      const score = evidenceScore(p, tokens, it);
       pages.push({ ...p, score, fromSearch });
       if (!score) tried.push(`   ↳ no specs for this product on that page`);
     };
@@ -190,7 +221,9 @@ export async function gatherEvidence(items, { pagesPerItem = 2, charsPerPage = 2
     const q = [it.brand, it.model || it.name, 'specifications weight dimensions'].filter(Boolean).join(' ');
     const results = await searchWeb(q);
     tried.push(`${results.length ? '✓' : '✗'} search: "${q}" (${results.length} results${searchProvider() ? `, ${SEARCH_PROVIDERS[searchProvider()].label}` : relaySearchAvailable() ? ', site search relay' : ''})`);
-    const ranked = results.map(r => ({ ...r, s: matchScore(`${r.title} ${r.url} ${r.snippet}`, tokens) })).sort((a, b) => b.s - a.s).slice(0, 3);
+    const ranked = results.filter(r => !isLowQuality(r.url))
+      .map(r => ({ ...r, s: matchScore(`${r.title} ${r.url} ${r.snippet}`, tokens) + (onDomain(r.url, it.domain) ? 6 : 0) }))
+      .sort((a, b) => b.s - a.s).slice(0, 3);
     await Promise.all(ranked.map(async r => {
       if (r.content && r.content.length > 300) { tried.push(`✓ ${r.url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 70)} (from search)`); consider({ url: r.url, title: r.title, text: r.content }, true); }
       else consider(await read(r.url), true);

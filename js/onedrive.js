@@ -1,8 +1,8 @@
 // Excel Online: open and save workbooks stored in OneDrive or SharePoint via
 // Microsoft Graph. Sign-in uses MSAL (popup) with the user's own Azure app
 // registration (a free, one-time setup that gives a Client ID).
-import { settings, saveSettings } from './store.js?v=202611012304';
-import { CONFIG } from './config.js?v=202611012304';
+import { settings, saveSettings } from './store.js?v=202611012314';
+import { CONFIG } from './config.js?v=202611012314';
 
 const MSAL_URL = 'https://cdn.jsdelivr.net/npm/@azure/msal-browser@5.25.1/lib/msal-browser.min.js';
 const GRAPH = 'https://graph.microsoft.com/v1.0';
