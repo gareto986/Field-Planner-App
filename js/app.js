@@ -1,14 +1,14 @@
 import { state, settings, commit, persist, saveSettings, restore, subscribe, CATEGORIES, catInfo, ENVIRONMENTS, ACTIVITIES, ACTIVITY_GROUPS,
-  TRANSPORT, emptyPlan, defaultRequest, itemById, nextItemId } from './store.js?v=20261101b';
+  TRANSPORT, emptyPlan, defaultRequest, itemById, nextItemId } from './store.js?v=202611012205';
 import { $, $$, esc, uid, num, round, fmtWeight, fmtVolume, weightToDisplay, weightFromDisplay, weightUnit, splitList,
-  toast, openModal, confirmDialog, markdown, debounce } from './utils.js?v=20261101b';
-import { autoPack, binPack, planStats, packingSummary, itemVolume, isContainer, isWorn, limitsFor, suggestedQty, relevance } from './planner.js?v=20261101b';
-import * as excel from './excel.js?v=20261101b';
-import * as cloud from './onedrive.js?v=20261101b';
-import { LOCAL_MODELS, hasWebGPU, gpuStatus, isModelCached, loadLocalModel, onLocalProgress, loadedModel } from './local-ai.js?v=20261101b';
-import { PROVIDERS, fetchFreeModels, fetchOvhModels, servedModel, isLocal, aiConfig, aiReady, chat, testConnection, SYSTEM_PROMPT, buildTripBrief, parseSuggestion, stripJson, iconFor } from './ai.js?v=20261101b';
-import { SAMPLE_ITEMS } from './sample-data.js?v=20261101b';
-import { openIntake } from './intake.js?v=20261101b';
+  toast, openModal, confirmDialog, markdown, debounce } from './utils.js?v=202611012205';
+import { autoPack, binPack, planStats, packingSummary, itemVolume, isContainer, isWorn, limitsFor, suggestedQty, relevance } from './planner.js?v=202611012205';
+import * as excel from './excel.js?v=202611012205';
+import * as cloud from './onedrive.js?v=202611012205';
+import { LOCAL_MODELS, hasWebGPU, gpuStatus, isModelCached, loadLocalModel, onLocalProgress, loadedModel } from './local-ai.js?v=202611012205';
+import { PROVIDERS, fetchFreeModels, fetchOvhModels, servedModel, isLocal, aiConfig, aiReady, chat, testConnection, SYSTEM_PROMPT, buildTripBrief, parseSuggestion, stripJson, iconFor } from './ai.js?v=202611012205';
+import { SAMPLE_ITEMS } from './sample-data.js?v=202611012205';
+import { openIntake } from './intake.js?v=202611012205';
 
 const U = () => settings.units;
 const W = kg => fmtWeight(kg, U());
@@ -472,6 +472,20 @@ function cloudCard() {
   const wb = state.workbook;
   return `<div class="card" id="cloudCard">
     <div class="card-head"><h2>☁️ Excel Online</h2><span class="muted">Keep the database in OneDrive or SharePoint so the whole team can use it.</span></div>
+    <div class="note-box sync-box">
+      <b>⭐ Easiest: OneDrive sync (no Entra, no admin, no setup)</b>
+      <p class="small">Works with any Excel file you own or can edit in OneDrive, SharePoint or Teams. FieldPack edits the synced copy on your computer and the OneDrive app uploads every save to Excel Online automatically.</p>
+      <ol class="small setup-steps">
+        <li>Make sure the <b>OneDrive</b> app is signed in on this computer (it's built into Windows 10/11 and available for Mac).</li>
+        <li>Find the workbook in File Explorer / Finder under <b>OneDrive</b>. For a SharePoint/Teams file, open its library in the browser and click <b>Add shortcut to My files</b> (or <b>Sync</b>).</li>
+        <li>Right-click the file → <b>Always keep on this device</b> (recommended).</li>
+        <li>Click below and pick that file. Leave <b>Auto-save</b> on (Excel database card) and every change is uploaded to Excel Online within seconds.</li>
+      </ol>
+      <div class="row wrap"><button class="btn primary" data-action="wb-open-local">📂 Open my OneDrive-synced workbook</button>
+        <span class="muted small">Needs Chrome or Edge on a computer. Tip: avoid editing the same file in Excel at the same moment; OneDrive would keep both copies.</span></div>
+    </div>
+    <h3 class="cloud-adv">Direct connection (Microsoft sign-in)</h3>
+    <p class="muted small">Opens files straight from OneDrive/SharePoint in any browser, but needs an app registration in Microsoft Entra (done once, by you or your IT admin).</p>
     ${wb.connected && wb.cloud ? `<p>Connected to <b>${esc(wb.name)}</b> in Excel Online. ${wb.webUrl ? `<a href="${esc(wb.webUrl)}" target="_blank" rel="noopener">Open in Excel ↗</a>` : ''}</p>` : ''}
     ${cloud.siteClientId() && !cs.clientId ? '<p class="small">✅ This site is already set up for Excel Online. Just sign in with your Microsoft account.</p>' : ''}
     <div class="grid2"><label>Microsoft app Client ID ${cloud.siteClientId() ? '<small class="muted">(optional, overrides the site default)</small>' : ''}<input id="cloudClientId" value="${esc(cs.clientId)}" placeholder="${cloud.siteClientId() ? 'using the site default' : 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'}" autocomplete="off"></label>
@@ -484,7 +498,7 @@ function cloudCard() {
       <button class="btn" data-action="cloud-new" ${cloud.cloudConfigured() ? '' : 'disabled'}>✨ New in OneDrive</button>
       <button class="btn ghost" data-action="cloud-signout" ${cloud.cloudConfigured() ? '' : 'disabled'}>Sign out</button>
     </div>
-    <details ${cloud.cloudConfigured() ? '' : 'open'}><summary>${cloud.siteClientId() ? 'Use your own app registration instead (optional)' : 'One-time setup (about 5 minutes, free)'}</summary>
+    <details><summary>${cloud.siteClientId() ? 'Use your own app registration instead (optional)' : 'One-time setup (about 5 minutes, free)'}</summary>
       <ol class="small setup-steps">
         <li>Go to <a href="https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener">Microsoft Entra → App registrations</a> (or <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener">Azure portal</a>) and sign in with your Microsoft account. Click <b>New registration</b>.</li>
         <li>Name it <b>FieldPack</b>. Under <i>Supported account types</i>, pick <b>Accounts in any organizational directory and personal Microsoft accounts</b> (or only your organization, if IT prefers).</li>
@@ -935,8 +949,9 @@ function wbOpenChooser() {
   openModal(`<h2>Open a workbook</h2>
     <div class="welcome-actions">
       <button class="btn primary big" data-src="local">💻 From this computer</button>
-      <button class="btn accent big" data-src="cloud">☁️ From Excel Online (OneDrive / SharePoint)</button>
-    </div>`, { onMount: (m, close) => m.addEventListener('click', e => {
+      <button class="btn accent big" data-src="cloud">☁️ From Excel Online (Microsoft sign-in)</button>
+    </div>
+    <p class="muted small" style="margin-top:.8rem">Tip: a file in your <b>OneDrive folder</b> on this computer is an Excel Online file too. Open it "from this computer" and the OneDrive app syncs every save; no Microsoft sign-in setup needed.</p>`, { onMount: (m, close) => m.addEventListener('click', e => {
       const src = e.target.closest('[data-src]')?.dataset.src; if (!src) return;
       close(); src === 'local' ? wbOpen() : cloudBrowse();
     }) });
@@ -1085,6 +1100,7 @@ function welcome() {
     <div class="welcome-actions">
       <button class="btn primary big" data-w="open">📂 Open my Excel database (this computer)</button>
       <button class="btn big" data-w="cloud">☁️ Open from Excel Online (OneDrive / SharePoint)</button>
+      <p class="muted small">Your Excel file lives in OneDrive? If the OneDrive app is on this computer, just use the first button and pick it from your OneDrive folder; saves sync automatically.</p>
       <button class="btn accent big" data-w="new">✨ Create a new database (with sample gear)</button>
       <button class="btn ghost" data-w="try">Just explore with sample data</button>
     </div></div>`, {
@@ -1240,6 +1256,7 @@ function onClick(e) {
       toast(id ? 'Client ID saved. Now sign in with Microsoft.' : 'Client ID cleared', 'ok'); return render();
     }
     case 'cloud-signin': return cloud.signIn().then(a => { toast(`Signed in as ${a.username}`, 'ok'); render(); }).catch(err => toast(`Microsoft sign-in failed: ${err.message}`, 'bad', 8000));
+    case 'wb-open-local': return wbOpen();
     case 'cloud-browse': return cloudBrowse();
     case 'cloud-link': return cloudOpenLink();
     case 'cloud-new': return cloudNew();
@@ -1323,7 +1340,7 @@ async function boot() {
   $('#view').addEventListener('dragover', onDragOver);
   $('#view').addEventListener('drop', onDrop);
   $('#view').addEventListener('dragend', onDragEnd);
-  $('#btnOpen').onclick = () => (cloud.cloudConfigured() ? wbOpenChooser() : wbOpen());
+  $('#btnOpen').onclick = () => wbOpenChooser();
   $('#btnNew').onclick = wbNew;
   $('#btnSave').onclick = () => wbSave();
   document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); wbSave(); } });

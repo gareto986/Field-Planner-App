@@ -82,6 +82,16 @@ For confidential trips there's also a **free built-in AI**: an open-weight model
 
 ## Excel Online setup (OneDrive / SharePoint)
 
+**No Entra access? Use OneDrive sync (no setup, no admin).** Any workbook you own or can edit in OneDrive, SharePoint or Teams works:
+1. Have the OneDrive app signed in on your computer (built into Windows 10/11; available for Mac).
+2. Find the workbook in your OneDrive folder in File Explorer/Finder. For SharePoint/Teams files, click **Add shortcut to My files** (or **Sync**) in the browser library first.
+3. Right-click it → **Always keep on this device**.
+4. In FieldPack (Chrome or Edge): **Open → From this computer**, pick the file, and leave auto-save on. Every save goes to Excel Online automatically via the OneDrive app.
+
+Avoid editing the same file in Excel at the same moment (OneDrive would keep both copies).
+
+**Direct connection (Microsoft sign-in, any browser)** needs a one-time app registration:
+
 Excel Online access uses Microsoft sign-in, which needs a free app registration (one time, about 5 minutes):
 
 1. Open [Microsoft Entra → App registrations](https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade) → **New registration**, name it *FieldPack*.

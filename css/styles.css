@@ -475,3 +475,7 @@ details summary { cursor: pointer; font-weight: 800; margin-top: .8rem; }
 .cloud-acct { display: flex; flex-direction: column; gap: .3rem; justify-content: flex-end; }
 .setup-steps li { margin: .35rem 0; line-height: 1.5; }
 code.copy { user-select: all; display: inline-block; margin-top: .2rem; }
+
+.sync-box { margin: 0 0 1rem; border-color: var(--kelp); border-style: solid; }
+.sync-box p { margin: .4rem 0; }
+.cloud-adv { margin: .4rem 0 .2rem; font-size: 1rem; }
