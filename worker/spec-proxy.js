@@ -10,10 +10,13 @@
 //                 the Google project: grounding isn't part of Gemini's free tier)
 //   POST /search  web search for FieldPack's free lookup, using a Serper (Google
 //                 results) or Tavily key, both of which have free tiers
+//   POST /read    fetch a product page and return its text (so lookups don't depend on
+//                 each visitor's free page-reader limit); optional JINA_API_KEY improves it
 //
 // Settings (Cloudflare dashboard → your Worker → Settings → Variables and Secrets):
 //   GEMINI_API_KEY   (Secret, optional) your Gemini API key from https://aistudio.google.com/apikey
 //   SERPER_API_KEY   (Secret, optional) from https://serper.dev  (or TAVILY_API_KEY from https://app.tavily.com)
+//   JINA_API_KEY     (Secret, optional) from https://jina.ai, used by /read for pages that need a browser to render
 //   ALLOWED_ORIGINS  (Text)    comma-separated sites allowed to use it, e.g. https://gareto986.github.io
 //   GEMINI_MODEL     (Text, optional) pin a model; by default the newest available Gemini Flash is used
 
@@ -70,6 +73,62 @@ async function search(env, query, count) {
   return [501, { error: 'Search is not set up on this relay.', code: 'no_search' }];
 }
 
+// ---------- /read: page text for spec lookups ----------
+const UA = 'Mozilla/5.0 (compatible; FieldPackSpecBot/1.0; +https://github.com/gareto986/Field-Planner-App)';
+const ENT = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', deg: '°', frac12: '½', frac14: '¼', frac34: '¾', times: '×', rdquo: '"', ldquo: '"', rsquo: "'", lsquo: "'", prime: '′', Prime: '″' };
+const decode = s => s.replace(/&(#x?[0-9a-f]+|\w+);/gi, (m, e) => e[0] === '#' ? String.fromCodePoint(e[1].toLowerCase() === 'x' ? parseInt(e.slice(2), 16) : +e.slice(1)) : (ENT[e] ?? m));
+
+/** Rough HTML → text that keeps table rows, list items and JSON-LD product data. */
+function htmlToText(html) {
+  const title = decode((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || '').trim();
+  const ld = [...html.matchAll(/<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)].map(m => m[1]).join('\n');
+  let t = html.replace(/<(script|style|noscript|svg|iframe|template)[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<\/(td|th)>/gi, ' | ').replace(/<(br|\/p|\/li|\/tr|\/h[1-6]|\/div|\/dt|\/dd|li|tr)[^>]*>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ');
+  t = decode(t).replace(/[ \t]+/g, ' ').replace(/ *\n */g, '\n').replace(/\n{2,}/g, '\n').trim();
+  const ldText = ld ? `\n[product data] ${ld.replace(/\s+/g, ' ').slice(0, 20000)}` : '';
+  return { title, text: (t + ldText).slice(0, 150000) };
+}
+
+const BLOCKED_HOST = /^(localhost|127\.|10\.|192\.168\.|169\.254\.|0\.|\[|.*\.local$|.*\.internal$)/i;
+
+async function readPage(env, url) {
+  let u;
+  try { u = new URL(url); } catch { return [400, { error: 'Bad URL' }]; }
+  if (!/^https?:$/.test(u.protocol) || BLOCKED_HOST.test(u.hostname)) return [400, { error: 'URL not allowed' }];
+  // 1) fetch the page directly from Cloudflare
+  try {
+    const res = await fetch(u.href, { headers: { 'User-Agent': UA, Accept: 'text/html,application/xhtml+xml' }, redirect: 'follow', cf: { cacheTtl: 3600 } });
+    const type = res.headers.get('content-type') || '';
+    if (res.ok && /html|xml/i.test(type)) {
+      const html = (await res.text()).slice(0, 3_000_000);
+      const { title, text } = htmlToText(html);
+      if (text.length > 400 && !/just a moment|access denied|verify(ing)? you are human|captcha/i.test(title + text.slice(0, 2000))) {
+        const page = { url: res.url || u.href, title: title || u.hostname, text, via: 'direct' };
+        // Specs often load via scripts; if none are visible, try the rendering reader before giving up on them.
+        if (/\b(weight|weighs|dimensions?)\b[^\n]{0,60}\d/i.test(text)) return [200, page];
+        const r = await jinaRead(env, u.href);
+        return [200, r && /\b(weight|weighs|dimensions?)\b[^\n]{0,60}\d/i.test(r.text) ? r : page];
+      }
+    }
+  } catch { /* fall through */ }
+  // 2) pages that need a real browser (or block bots): Jina Reader, with the relay's key if set
+  const r = await jinaRead(env, u.href);
+  if (r === 'busy') return [429, { error: 'Page reader is busy', code: 'busy' }];
+  if (r) return [200, r];
+  return [404, { error: 'Could not read that page', code: 'unreadable' }];
+}
+
+async function jinaRead(env, href) {
+  try {
+    const res = await fetch(`https://r.jina.ai/${href}`, { headers: { Accept: 'application/json', ...(env.JINA_API_KEY ? { Authorization: `Bearer ${env.JINA_API_KEY}` } : {}) } });
+    if (res.status === 429) return 'busy';
+    const d = (await res.json().catch(() => ({}))).data || {};
+    if (res.ok && String(d.content || '').length > 200) return { url: d.url || href, title: d.title || href, text: String(d.content).slice(0, 150000), via: 'jina' };
+  } catch { /* ignore */ }
+  return null;
+}
+
 function cors(origin, allowed) {
   const ok = allowed.includes(origin);
   return {
@@ -92,7 +151,7 @@ export default {
     if (!allowed.includes(origin)) return reply(403, { error: 'This site is not allowed to use this relay (check ALLOWED_ORIGINS).' });
     const path = new URL(request.url).pathname.replace(/\/+$/, '');
     if (request.method === 'GET' && path === '/status') {
-      return reply(200, { verify: !!env.GEMINI_API_KEY, search: !!(env.SERPER_API_KEY || env.TAVILY_API_KEY) });
+      return reply(200, { verify: !!env.GEMINI_API_KEY, search: !!(env.SERPER_API_KEY || env.TAVILY_API_KEY), read: true });
     }
     if (request.method !== 'POST') return reply(405, { error: 'POST only' });
 
@@ -100,6 +159,7 @@ export default {
     try { body = await request.json(); } catch { return reply(400, { error: 'Invalid JSON' }); }
 
     if (path === '/search') return reply(...await search(env, clip(body.query, 200), Math.min(5, Math.max(1, num(body.count) || 5))));
+    if (path === '/read') return reply(...await readPage(env, clip(body.url, 2000)));
 
     if (!env.GEMINI_API_KEY) return reply(501, { error: 'Google Search spec checks are not set up on this relay.', code: 'no_verify' });
     const items = (Array.isArray(body.items) ? body.items : []).slice(0, MAX_ITEMS).map((it, i) => ({

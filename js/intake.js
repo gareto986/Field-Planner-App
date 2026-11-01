@@ -1,13 +1,13 @@
 // "Add gear with AI": describe items in plain words; the AI drafts inventory
 // records and asks short follow-up questions when details that matter for
 // planning (quantity, weight, size, capacity) are missing or ambiguous.
-import { state, settings, CATEGORIES, ACTIVITIES, ENVIRONMENTS, catInfo } from './store.js?v=202611012314';
-import { chat, chatWithWebSearch, nativeVerifier, PROVIDERS, aiReady, aiConfig, isLocal } from './ai.js?v=202611012314';
-import { $, esc, num, round, openModal, toast, splitList, weightToDisplay, weightFromDisplay, weightUnit, fmtDims, fmtVolSmall, lenToDisplay, lenUnit } from './utils.js?v=202611012314';
-import { gatherEvidence, searchProvider, SEARCH_PROVIDERS } from './websearch.js?v=202611012314';
-import { CONFIG } from './config.js?v=202611012314';
-import { saveSettings } from './store.js?v=202611012314';
-import { loadedModel } from './local-ai.js?v=202611012314';
+import { state, settings, CATEGORIES, ACTIVITIES, ENVIRONMENTS, catInfo } from './store.js?v=202611012336';
+import { chat, chatWithWebSearch, nativeVerifier, PROVIDERS, aiReady, aiConfig, isLocal } from './ai.js?v=202611012336';
+import { $, esc, num, round, openModal, toast, splitList, weightToDisplay, weightFromDisplay, weightUnit, fmtDims, fmtVolSmall, lenToDisplay, lenUnit } from './utils.js?v=202611012336';
+import { gatherEvidence, searchProvider, SEARCH_PROVIDERS, readerStatus } from './websearch.js?v=202611012336';
+import { CONFIG } from './config.js?v=202611012336';
+import { saveSettings } from './store.js?v=202611012336';
+import { loadedModel } from './local-ai.js?v=202611012336';
 
 const SYSTEM = () => `You are FieldPack's inventory assistant for an archaeology and field-research team. Turn the user's plain-language description of gear into inventory records for a trip-planning database.
 
@@ -180,8 +180,10 @@ export function openIntake({ initial = '', onAdd, goSettings, confirmLocal }) {
         ev.forEach((e, k) => { targets[k].d.tried = e.tried; });
         const evidence = ev.map((e, k) => `### Item ${targets[k].i}: ${targets[k].d.name}\n${e.sources.length ? e.sources.map(s => `Source: ${s.url}\n${s.excerpt}`).join('\n\n') : '(no pages found)'}`).join('\n\n');
         if (!allowed.size) {
-          targets.forEach(({ d }) => { d.check = { verified: false, note: 'No product pages with specs could be read; kept the estimate.', tried: d.tried }; });
-          verifying = ''; view(); toast('Could not find spec pages for these items; kept the AI estimates.', 'warn', 6000);
+          const busy = readerStatus.busy;
+          targets.forEach(({ d }) => { d.check = { verified: false, note: busy ? 'The free page reader is busy; wait a minute and Re-check.' : 'No product pages with specs could be read; kept the estimate.', tried: d.tried }; });
+          verifying = ''; view();
+          toast(busy ? 'The free page reader is busy (too many lookups in the last minute). Wait a minute, then click Re-check.' : 'Could not find spec pages for these items; kept the AI estimates.', 'warn', 8000);
           return;
         }
         verifying = 'Comparing the specs…'; view();

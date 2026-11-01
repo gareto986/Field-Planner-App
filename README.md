@@ -113,6 +113,7 @@ Excel Online access uses Microsoft sign-in, which needs a free app registration 
 3. **Edit code**, replace everything with the contents of [`worker/spec-proxy.js`](worker/spec-proxy.js), **Deploy**.
 4. Worker **Settings → Variables and Secrets → Add** one or both:
    - `SERPER_API_KEY`: type **Secret**, a free key from [serper.dev](https://serper.dev) (Google results, free tier, no card). Gives everyone real web search for the free lookup. (Or `TAVILY_API_KEY` from [tavily.com](https://app.tavily.com).)
+   - `JINA_API_KEY` (optional): type **Secret**, a free key from [jina.ai](https://jina.ai). The relay reads product pages itself (`/read`) so lookups don't depend on each visitor's page-reader limit; this key helps with pages that need a browser to render.
    - `GEMINI_API_KEY`: type **Secret**, value = your key from [Google AI Studio](https://aistudio.google.com/apikey). Gives full Gemini + Google Search spec checks, but **Google Search grounding needs billing enabled** on that Google project (it's not part of Gemini's free tier). Without billing the app quietly falls back to the search-based lookup.
    - (optional) `GEMINI_MODEL`: type **Text**, to pin a model; otherwise the newest available Gemini Flash is picked automatically
    - `ALLOWED_ORIGINS`: type **Text**, value = `https://gareto986.github.io` (add `,http://localhost:8080` to also use it locally)

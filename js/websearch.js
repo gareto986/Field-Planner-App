@@ -6,8 +6,8 @@
 // Pages are read as text via Jina Reader (keyless). When a page has no specs but
 // links to the product (search results, category pages), the best-matching links
 // are followed one hop.
-import { CONFIG } from './config.js?v=202611012314';
-import { settings } from './store.js?v=202611012314';
+import { CONFIG } from './config.js?v=202611012336';
+import { settings } from './store.js?v=202611012336';
 
 const TIMEOUT_MS = 20000;
 
@@ -90,15 +90,30 @@ async function paced(fn) {
   try { return await fn(); } finally { active--; waiting.shift()?.(); }
 }
 
-/** Read a web page as text via Jina Reader. Returns {url, title, text} or null. */
+// Set when the free page reader refuses us (rate limit), so the UI can say "busy" instead of "not found".
+export const readerStatus = { busy: false };
+let relayReadOff = false;
+
+/** Read a web page as text: via the site's relay if it has one, else Jina Reader. Returns {url, title, text} or null. */
 export async function readPage(url) {
   if (!/^https?:\/\//i.test(url || '') || isLowQuality(url)) return null;
+  if (relaySearchAvailable() && !relayReadOff) {
+    try {
+      const res = await paced(() => fetchWithTimeout(new URL('read', CONFIG.specProxyUrl).href, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url }) }, 30000));
+      const d = await res.json().catch(() => ({}));
+      if (res.ok && d.text) return { url: d.url || url, title: d.title || url, text: d.text };
+      if (res.status === 429) { readerStatus.busy = true; return null; }
+      if (d.code === 'unreadable') return null;
+      relayReadOff = true; // relay without /read (older code): use the browser reader from now on
+    } catch { /* fall back to Jina from the browser */ }
+  }
   try {
     let res = await paced(() => fetchWithTimeout(`https://r.jina.ai/${url}`, { headers: { Accept: 'application/json' } }));
     if (res.status === 429 || res.status >= 500) {
       await new Promise(r => setTimeout(r, 3000));
       res = await paced(() => fetchWithTimeout(`https://r.jina.ai/${url}`, { headers: { Accept: 'application/json' } }));
     }
+    if (res.status === 429) { readerStatus.busy = true; return null; }
     if (!res.ok) return null;
     const d = (await res.json()).data || {};
     const text = String(d.content || '');
@@ -194,52 +209,64 @@ function evidenceScore(page, tokens, it) {
 }
 
 /**
- * Gather evidence for each item.
+ * Gather evidence for each item, reading as few pages as possible:
+ * manufacturer pages first, Google snippets that already contain specs, then other
+ * results, the manufacturer's site search and one hop of product links, stopping as
+ * soon as solid specs are found.
  * items: [{ name, brand?, model?, domain?, specUrl? }] → [{ index, sources: [{url, title, excerpt}], tried: [string] }]
  */
-export async function gatherEvidence(items, { pagesPerItem = 2, charsPerPage = 2500 } = {}) {
+export async function gatherEvidence(items, { pagesPerItem = 2, charsPerPage = 2500, maxReads = 5 } = {}) {
+  readerStatus.busy = false;
   return Promise.all(items.map(async (it, index) => {
     const tokens = productTokens(it);
     const tried = [];
     const pages = [];
-    const read = async url => {
-      const p = await readPage(url);
-      tried.push(`${p ? '✓' : '✗'} ${url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 70)}`);
-      return p;
-    };
-    const consider = (p, fromSearch = false) => {
+    const seen = new Set();
+    let reads = 0;
+    const short = url => url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 70);
+    const solid = () => pages.some(p => p.score >= 9 || (p.score >= 7 && onDomain(p.url, it.domain)));
+    const consider = p => {
       if (!p) return;
       const score = evidenceScore(p, tokens, it);
-      pages.push({ ...p, score, fromSearch });
-      if (!score) tried.push(`   ↳ no specs for this product on that page`);
+      pages.push({ ...p, score });
+      if (!score) tried.push('   ↳ no specs for this product on that page');
+    };
+    const read = async url => {
+      if (!url || seen.has(url) || reads >= maxReads || solid()) return null;
+      seen.add(url); reads++;
+      const p = await readPage(url);
+      tried.push(`${p ? '✓' : '✗'} ${short(url)}${!p && readerStatus.busy ? ' (page reader busy)' : ''}`);
+      consider(p);
+      return p;
     };
 
-    // 1) AI-suggested product page
-    if (it.specUrl) consider(await read(it.specUrl));
-
-    // 2) web search (search key, else Marginalia)
+    // 1) web search (relay / search key / Marginalia)
     const q = [it.brand, it.model || it.name, 'specifications weight dimensions'].filter(Boolean).join(' ');
-    const results = await searchWeb(q);
+    const results = (await searchWeb(q)).filter(r => !isLowQuality(r.url));
     tried.push(`${results.length ? '✓' : '✗'} search: "${q}" (${results.length} results${searchProvider() ? `, ${SEARCH_PROVIDERS[searchProvider()].label}` : relaySearchAvailable() ? ', site search relay' : ''})`);
-    const ranked = results.filter(r => !isLowQuality(r.url))
-      .map(r => ({ ...r, s: matchScore(`${r.title} ${r.url} ${r.snippet}`, tokens) + (onDomain(r.url, it.domain) ? 6 : 0) }))
-      .sort((a, b) => b.s - a.s).slice(0, 3);
-    await Promise.all(ranked.map(async r => {
-      if (r.content && r.content.length > 300) { tried.push(`✓ ${r.url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 70)} (from search)`); consider({ url: r.url, title: r.title, text: r.content }, true); }
-      else consider(await read(r.url), true);
-    }));
 
-    // 3) manufacturer's own site search, if we still have nothing good
-    if (!pages.some(p => p.score >= 7) && it.domain) {
-      for (const mk of siteSearchUrls(it.domain)) {
-        const p = await read(mk(it.model || it.name));
-        if (p) { consider(p); break; }
+    // 2) search results that already carry full page content (Tavily) or spec-bearing snippets
+    for (const r of results) {
+      if (r.content && r.content.length > 300) consider({ url: r.url, title: r.title, text: r.content });
+      else if (r.snippet && labeledSpecLines(r.snippet.replace(/[·;]\s*/g, '\n')).length) {
+        const snip = { url: r.url, title: r.title, text: r.snippet.replace(/[·;]\s*/g, '\n') };
+        if (evidenceScore(snip, tokens, it)) { consider(snip); tried.push(`✓ ${short(r.url)} (Google snippet)`); }
       }
     }
 
-    // 4) follow product links one hop from pages without good specs
-    const hop = pages.filter(p => p.score < 7).flatMap(p => productLinks(p, tokens)).filter((u, i, a) => a.indexOf(u) === i && !pages.some(p => p.url === u)).slice(0, 3);
-    (await Promise.all(hop.map(read))).forEach(p => consider(p));
+    // 3) read pages in priority order: manufacturer results, AI-suggested page, other results
+    const ranked = results.map(r => ({ ...r, s: matchScore(`${r.title} ${r.url} ${r.snippet}`, tokens) + (onDomain(r.url, it.domain) ? 6 : 0) })).sort((a, b) => b.s - a.s);
+    const order = [...ranked.filter(r => onDomain(r.url, it.domain)).map(r => r.url), it.specUrl, ...ranked.map(r => r.url)].filter(Boolean);
+    for (const url of order.slice(0, 4)) { if (solid()) break; await read(url); }
+
+    // 4) manufacturer's own site search
+    if (!solid() && it.domain) for (const mk of siteSearchUrls(it.domain)) { if (await read(mk(it.model || it.name))) break; }
+
+    // 5) one hop of matching product links from pages that didn't have the specs
+    if (!solid()) {
+      const hop = pages.filter(p => p.score < 7 && p.text).flatMap(p => productLinks(p, tokens)).filter((u, i, a) => a.indexOf(u) === i);
+      for (const url of hop.slice(0, 2)) { if (solid()) break; await read(url); }
+    }
 
     const sources = pages.filter(p => p.score > 0).sort((a, b) => b.score - a.score).slice(0, pagesPerItem)
       .map(p => ({ url: p.url, title: p.title, excerpt: [`Page title: ${p.title}`, ...labeledSpecLines(p.text)].join('\n').slice(0, charsPerPage) }))
