@@ -2,9 +2,9 @@
 // "Items" and "Trips" sheets; any other sheets in the file are preserved.
 // Uses the File System Access API (Chrome/Edge) to save back into the same
 // file, with a download fallback for other browsers.
-import { settings } from './store.js?v=202611012227';
-import { num, round, splitList, KG_PER_LB, CM_PER_IN, IN3_PER_L, L_PER_FT3 } from './utils.js?v=202611012227';
-import * as cloudApi from './onedrive.js?v=202611012227';
+import { settings } from './store.js?v=202611012244';
+import { num, round, splitList, KG_PER_LB, CM_PER_IN, IN3_PER_L, L_PER_FT3 } from './utils.js?v=202611012244';
+import * as cloudApi from './onedrive.js?v=202611012244';
 
 export const ITEM_COLS = [
   ['id', 'ID'], ['name', 'Name'], ['category', 'Category'], ['icon', 'Icon'],

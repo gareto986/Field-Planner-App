@@ -1,9 +1,9 @@
 // Bring-your-own-AI connector. Calls the provider straight from the browser
 // with the user's own key (stored only in this browser's localStorage).
-import { state, settings, itemById, catInfo } from './store.js?v=202611012227';
-import { itemVolume, planStats, packingSummary, relevance } from './planner.js?v=202611012227';
-import { round, fmtWeight, fmtVolume, fmtVolSmall, weightToDisplay, volSmallToDisplay, weightUnit, volSmallUnit } from './utils.js?v=202611012227';
-import { DEFAULT_LOCAL_MODEL, hasWebGPU, localChat, isLowMemory } from './local-ai.js?v=202611012227';
+import { state, settings, itemById, catInfo } from './store.js?v=202611012244';
+import { itemVolume, planStats, packingSummary, relevance } from './planner.js?v=202611012244';
+import { round, fmtWeight, fmtVolume, fmtVolSmall, weightToDisplay, volSmallToDisplay, weightUnit, volSmallUnit } from './utils.js?v=202611012244';
+import { DEFAULT_LOCAL_MODEL, hasWebGPU, localChat, isLowMemory } from './local-ai.js?v=202611012244';
 
 const OVH_BASE = 'https://oai.endpoints.kepler.ai.cloud.ovh.net/v1';
 const OVH_FALLBACKS = ['gpt-oss-120b', 'Meta-Llama-3_3-70B-Instruct', 'Qwen3.6-27B', 'Mistral-Small-3.2-24B-Instruct-2506', 'gpt-oss-20b'];
@@ -128,8 +128,22 @@ export async function fetchFreeModels() {
     .sort((a, b) => (b.id === PROVIDERS.openrouter.defaultModel) - (a.id === PROVIDERS.openrouter.defaultModel) || b.context - a.context);
 }
 
-/** True when the selected AI can search the web itself (Claude web search, Gemini Google Search grounding). */
-export const hasNativeWebSearch = () => ['anthropic', 'gemini'].includes(aiConfig().provider) && !!aiConfig().apiKey;
+/**
+ * Which AI should verify specs with its own web search: the main AI if it is Claude or
+ * Gemini, otherwise any saved Claude/Gemini key (unless the user chose free lookup only).
+ * Returns { provider, model, apiKey } or null.
+ */
+export function nativeVerifier() {
+  const c = aiConfig();
+  if (['anthropic', 'gemini'].includes(c.provider) && c.apiKey) return c;
+  if (settings.ai.specMode === 'free') return null;
+  for (const p of ['gemini', 'anthropic']) {
+    const k = settings.ai.keys?.[p];
+    if (k) return { provider: p, model: PROVIDERS[p].defaultModel, apiKey: k };
+  }
+  return null;
+}
+export const hasNativeWebSearch = () => !!nativeVerifier();
 
 // Claude models with the dynamic-filtering web search tool; others use the basic version.
 const CLAUDE_WEB_2026 = /^claude-(opus-(5-5|5|4-8|4-7|4-6)|sonnet-(5-5|5|4-6))$/;
@@ -138,8 +152,7 @@ const CLAUDE_WEB_2026 = /^claude-(opus-(5-5|5|4-8|4-7|4-6)|sonnet-(5-5|5|4-6))$/
  * Like chat(), but lets the model search the web. Returns { text, sources: [{url, title}] }.
  * Only for providers where hasNativeWebSearch() is true.
  */
-export async function chatWithWebSearch(system, messages) {
-  const c = aiConfig();
+export async function chatWithWebSearch(system, messages, c = nativeVerifier() || aiConfig()) {
   if (c.provider === 'anthropic') {
     const headers = { 'x-api-key': c.apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' };
     const tool = { type: CLAUDE_WEB_2026.test(c.model) ? 'web_search_20260209' : 'web_search_20250305', name: 'web_search', max_uses: 8 };

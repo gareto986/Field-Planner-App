@@ -1,7 +1,7 @@
 // Local (non-AI) planning engine: quantities, relevance scoring,
 // container selection, bin packing and plan statistics.
-import { state, itemById, TRANSPORT } from './store.js?v=202611012227';
-import { uid, splitList } from './utils.js?v=202611012227';
+import { state, itemById, TRANSPORT } from './store.js?v=202611012244';
+import { uid, splitList } from './utils.js?v=202611012244';
 
 export const itemVolume = it => {
   if (!it) return 0;

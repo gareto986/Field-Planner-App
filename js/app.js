@@ -1,16 +1,17 @@
 import { state, settings, commit, persist, saveSettings, restore, subscribe, CATEGORIES, catInfo, ENVIRONMENTS, ACTIVITIES, ACTIVITY_GROUPS,
-  TRANSPORT, emptyPlan, defaultRequest, itemById, nextItemId } from './store.js?v=202611012227';
+  TRANSPORT, emptyPlan, defaultRequest, itemById, nextItemId } from './store.js?v=202611012244';
 import { $, $$, esc, uid, num, round, fmtWeight, fmtVolume, fmtVolSmall, fmtVolPair, weightToDisplay, weightFromDisplay, weightUnit,
   lenToDisplay, lenFromDisplay, lenUnit, volSmallToDisplay, volSmallFromDisplay, volSmallUnit, volBigToDisplay, volBigFromDisplay, volBigUnit, splitList,
-  toast, openModal, confirmDialog, markdown, debounce } from './utils.js?v=202611012227';
-import { autoPack, binPack, planStats, packingSummary, itemVolume, isContainer, isWorn, limitsFor, suggestedQty, relevance } from './planner.js?v=202611012227';
-import * as excel from './excel.js?v=202611012227';
-import * as cloud from './onedrive.js?v=202611012227';
-import { LOCAL_MODELS, hasWebGPU, gpuStatus, isModelCached, loadLocalModel, onLocalProgress, loadedModel } from './local-ai.js?v=202611012227';
-import { PROVIDERS, fetchFreeModels, fetchOvhModels, servedModel, isLocal, aiConfig, aiReady, chat, testConnection, systemPrompt, buildTripBrief, parseSuggestion, stripJson, iconFor } from './ai.js?v=202611012227';
-import { SAMPLE_ITEMS } from './sample-data.js?v=202611012227';
-import { pickerHtml, wirePicker, suggestIcon } from './emoji.js?v=202611012227';
-import { openIntake } from './intake.js?v=202611012227';
+  toast, openModal, confirmDialog, markdown, debounce } from './utils.js?v=202611012244';
+import { autoPack, binPack, planStats, packingSummary, itemVolume, isContainer, isWorn, limitsFor, suggestedQty, relevance } from './planner.js?v=202611012244';
+import * as excel from './excel.js?v=202611012244';
+import * as cloud from './onedrive.js?v=202611012244';
+import { LOCAL_MODELS, hasWebGPU, gpuStatus, isModelCached, loadLocalModel, onLocalProgress, loadedModel } from './local-ai.js?v=202611012244';
+import { PROVIDERS, fetchFreeModels, fetchOvhModels, servedModel, isLocal, aiConfig, aiReady, chat, testConnection, systemPrompt, buildTripBrief, parseSuggestion, stripJson, iconFor } from './ai.js?v=202611012244';
+import { SAMPLE_ITEMS } from './sample-data.js?v=202611012244';
+import { pickerHtml, wirePicker, suggestIcon } from './emoji.js?v=202611012244';
+import { SEARCH_PROVIDERS, searchWeb } from './websearch.js?v=202611012244';
+import { openIntake } from './intake.js?v=202611012244';
 
 const U = () => settings.units;
 const W = kg => fmtWeight(kg, U());
@@ -470,6 +471,29 @@ function viewHistory() {
 }
 
 // ---------------- Settings ----------------
+function specLookupCard() {
+  const sp = settings.search || {};
+  const mode = settings.ai.specMode || 'auto';
+  return `<div class="card" id="specCard">
+    <div class="card-head"><h2>🔎 Spec lookups</h2><span class="muted">How "Add gear with AI" checks weights and sizes on the web.</span></div>
+    <div class="row wrap">
+      <label class="check"><input type="radio" name="specMode" value="auto" ${mode === 'auto' ? 'checked' : ''}> <b>Auto</b>: use Gemini (Google Search) or Claude web search when a key is saved below or in AI connection, otherwise the free lookup</label>
+      <label class="check"><input type="radio" name="specMode" value="free" ${mode === 'free' ? 'checked' : ''}> Free lookup only</label>
+    </div>
+    <div class="grid2">
+      <label>Gemini key for spec checks <small class="muted">(best free option: Google Search results; free tier from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>, daily limits apply)</small>
+        <input id="specGeminiKey" type="password" autocomplete="off" value="${esc(settings.ai.keys?.gemini || '')}" placeholder="AIza…"></label>
+      <div></div>
+      <label>Free search API <small class="muted">(optional, improves the free lookup)</small>
+        <select id="searchProv">${Object.entries(SEARCH_PROVIDERS).map(([k, v]) => `<option value="${k}" ${sp.provider === k ? 'selected' : ''}>${esc(v.label)}</option>`).join('')}</select></label>
+      <label>Search API key <a class="small" id="searchKeyLink" href="${SEARCH_PROVIDERS[sp.provider || 'tavily'].keyUrl}" target="_blank" rel="noopener">get a free key ↗</a>
+        <input id="searchKey" type="password" autocomplete="off" value="${esc(sp.key || '')}" placeholder="${esc(SEARCH_PROVIDERS[sp.provider || 'tavily'].hint)}"></label>
+    </div>
+    <div class="row wrap" style="margin-top:.7rem"><button class="btn primary" data-action="spec-save">Save</button><button class="btn" data-action="spec-test">🔎 Test search</button><span id="specTestOut" class="muted small"></span></div>
+    <p class="muted small">Without any key, FieldPack reads the manufacturer's page the AI points to, searches Marginalia when it isn't busy, tries the manufacturer's own site search, and follows matching product links. Tavily, Serper and Jina each offer a free tier with sign-up; keys stay in this browser only.</p>
+  </div>`;
+}
+
 function cloudCard() {
   const cs = cloud.cloudSettings();
   const wb = state.workbook;
@@ -558,6 +582,7 @@ function viewSettings() {
         You get open-weight models like Gemma and Nemotron at no cost, with daily limits (roughly 50 requests/day on a free account) and automatic fallback to another free model if one is busy.
         <br><b>Privacy:</b> free providers may log prompts. Don't put exact site locations or other confidential details in trip notes when using free cloud models; use the built-in AI for sensitive trips.</div>` : ''}`}
     </div>
+    ${specLookupCard()}
     ${cloudCard()}
     <div class="card">
       <div class="card-head"><h2>📗 Excel database</h2></div>
@@ -643,6 +668,8 @@ function afterRender() {
     $$('.model-opt').forEach(o => o.classList.toggle('on', o.contains(r)));
   });
   if ($('.cache-flag')) refreshCacheFlags();
+  const sprov = $('#searchProv');
+  if (sprov) sprov.onchange = () => { const v = SEARCH_PROVIDERS[sprov.value]; $('#searchKeyLink').href = v.keyUrl; $('#searchKey').placeholder = v.hint; };
   const acctEl = $('#cloudAcct');
   if (acctEl && cloud.cloudConfigured()) cloud.currentAccount().then(a => { const el = $('#cloudAcct'); if (el) el.textContent = a ? `${a.name || ''} (${a.username})` : 'Not signed in'; });
   const freeSel = $('select#aiModel');
@@ -1272,6 +1299,18 @@ function onClick(e) {
     }
     case 'cloud-signin': return cloud.signIn().then(a => { toast(`Signed in as ${a.username}`, 'ok'); render(); }).catch(err => toast(`Microsoft sign-in failed: ${err.message}`, 'bad', 8000));
     case 'wb-open-local': return wbOpen();
+    case 'spec-save': case 'spec-test': {
+      settings.ai.specMode = $('input[name=specMode]:checked')?.value || 'auto';
+      settings.ai.keys ||= {};
+      const gk = $('#specGeminiKey').value.trim();
+      if (gk) settings.ai.keys.gemini = gk; else delete settings.ai.keys.gemini;
+      settings.search = { provider: $('#searchProv').value, key: $('#searchKey').value.trim() };
+      saveSettings();
+      if (d.action === 'spec-save') return toast('Spec lookup settings saved', 'ok');
+      const out = $('#specTestOut'); out.textContent = 'Searching…';
+      searchWeb('Pelican 1450 case specifications weight').then(r => { out.textContent = r.length ? `✅ ${r.length} results, e.g. ${r[0].title.slice(0, 60)}` : '⚠️ No results (search busy or key invalid)'; });
+      return;
+    }
     case 'cloud-browse': return cloudBrowse();
     case 'cloud-link': return cloudOpenLink();
     case 'cloud-new': return cloudNew();

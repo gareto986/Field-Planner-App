@@ -506,3 +506,10 @@ code.copy { user-select: all; display: inline-block; margin-top: .2rem; }
 .modal.wide { width: min(1080px, 100%); }
 .draft-table input[data-f=name] { min-width: 190px; }
 .draft-table td.small:nth-child(6) { white-space: nowrap; }
+
+.bm { display: flex; gap: .25rem; margin-top: .25rem; }
+.bm input { padding: .2rem .4rem !important; font-size: .75rem !important; min-width: 0 !important; }
+.tried { margin-top: .25rem; font-size: .72rem; }
+.tried summary { cursor: pointer; font-weight: 800; margin: 0; }
+.tried div { color: var(--muted); overflow-wrap: anywhere; }
+#specCard .check { align-items: flex-start; }

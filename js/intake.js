@@ -1,12 +1,12 @@
 // "Add gear with AI": describe items in plain words; the AI drafts inventory
 // records and asks short follow-up questions when details that matter for
 // planning (quantity, weight, size, capacity) are missing or ambiguous.
-import { state, settings, CATEGORIES, ACTIVITIES, ENVIRONMENTS, catInfo } from './store.js?v=202611012227';
-import { chat, chatWithWebSearch, hasNativeWebSearch, aiReady, aiConfig, isLocal } from './ai.js?v=202611012227';
-import { $, esc, num, round, openModal, toast, splitList, weightToDisplay, weightFromDisplay, weightUnit, fmtDims, fmtVolSmall } from './utils.js?v=202611012227';
-import { gatherEvidence } from './websearch.js?v=202611012227';
-import { saveSettings } from './store.js?v=202611012227';
-import { loadedModel } from './local-ai.js?v=202611012227';
+import { state, settings, CATEGORIES, ACTIVITIES, ENVIRONMENTS, catInfo } from './store.js?v=202611012244';
+import { chat, chatWithWebSearch, nativeVerifier, PROVIDERS, aiReady, aiConfig, isLocal } from './ai.js?v=202611012244';
+import { $, esc, num, round, openModal, toast, splitList, weightToDisplay, weightFromDisplay, weightUnit, fmtDims, fmtVolSmall, lenToDisplay, lenUnit } from './utils.js?v=202611012244';
+import { gatherEvidence, searchProvider, SEARCH_PROVIDERS } from './websearch.js?v=202611012244';
+import { saveSettings } from './store.js?v=202611012244';
+import { loadedModel } from './local-ai.js?v=202611012244';
 
 const SYSTEM = () => `You are FieldPack's inventory assistant for an archaeology and field-research team. Turn the user's plain-language description of gear into inventory records for a trip-planning database.
 
@@ -20,13 +20,14 @@ Rules:
 - perPerson=true when each crew member needs one; consumable=true with perPersonDay for supplies used up daily.
 - Containers (bags, totes, cases, buckets used as containers): category "Container" with capacityL and maxLoadKg.
 - icon: one fitting emoji.
-- specUrl: the manufacturer's official product page for that exact model if you know it (else ""). It is used to verify specs on the web.
+- brand, model, domain: the manufacturer (e.g. "Pelican"), the exact model/part number (e.g. "1450", "45 4-1/2"), and the manufacturer's website domain (e.g. "pelican.com"). Fill these whenever the user names a brand or you can tell it; they are used to look up official specs.
+- specUrl: the manufacturer's product page for that exact model if you are confident of the URL (else "").
 - If something already exists in the inventory list below, say so in "message" instead of duplicating it (unless the user clearly has more units, then explain).
 
 Existing inventory (names): ${state.items.map(i => i.name).join('; ') || '(empty)'}
 
 Reply with ONLY a JSON object, no other text:
-{"message":"one or two friendly sentences","questions":["..."],"items":[{"name":"","category":"","icon":"","weightKg":0,"lengthCm":0,"widthCm":0,"heightCm":0,"volumeL":0,"qtyOwned":1,"useCases":[],"environments":["all"],"perPerson":false,"consumable":false,"perPersonDay":0,"capacityL":0,"maxLoadKg":0,"notes":"","specUrl":""}]}
+{"message":"one or two friendly sentences","questions":["..."],"items":[{"name":"","category":"","icon":"","weightKg":0,"lengthCm":0,"widthCm":0,"heightCm":0,"volumeL":0,"qtyOwned":1,"useCases":[],"environments":["all"],"perPerson":false,"consumable":false,"perPersonDay":0,"capacityL":0,"maxLoadKg":0,"notes":"","brand":"","model":"","domain":"","specUrl":""}]}
 Always include your best current draft in "items", even while asking questions. When nothing important is missing, return "questions": [].`;
 
 function extractJson(text) {
@@ -47,6 +48,7 @@ function clean(it) {
     capacityL: category === 'Container' ? num(it.capacityL) : 0, maxLoadKg: category === 'Container' ? num(it.maxLoadKg) : 0,
     notes: String(it.notes || '').trim(),
     specUrl: /^https?:\/\//.test(it.specUrl || '') ? String(it.specUrl) : '',
+    brand: String(it.brand || '').trim().slice(0, 60), model: String(it.model || '').trim().slice(0, 60), domain: String(it.domain || '').trim().slice(0, 80),
   };
 }
 
@@ -102,16 +104,17 @@ export function openIntake({ initial = '', onAdd, goSettings, confirmLocal }) {
       <div class="row wrap verify-bar">
         <button type="button" class="btn small" data-verify ${busy || verifying ? 'disabled' : ''}>🔎 ${draft.some(d => d.check) ? 'Re-check' : 'Check'} specs on the web</button>
         <label class="check small"><input type="checkbox" data-autoverify ${autoVerify() ? 'checked' : ''}> Check automatically after drafting</label>
-        <span class="muted small">${verifying ? `<span class="spin">🔎</span> ${esc(verifying)}` : hasNativeWebSearch() ? 'Uses your AI\'s web search.' : 'Free lookup: reads manufacturer pages via Jina Reader (+ Marginalia search when available).'}</span>
+        <span class="muted small">${verifying ? `<span class="spin">🔎</span> ${esc(verifying)}` : nativeVerifier() ? `Uses ${nativeVerifier().provider === 'gemini' ? 'Gemini with Google Search' : 'Claude web search'}.` : searchProvider() ? `Free lookup with ${SEARCH_PROVIDERS[searchProvider()].label} search.` : 'Free lookup (add a free search key or Gemini key in Settings for better matches).'}</span>
       </div>
       <div class="table-wrap"><table class="draft-table"><thead><tr><th></th><th>Name</th><th>Category</th><th>Weight (${weightUnit(units)})</th><th>Qty</th><th>Size</th><th>Specs</th><th>Tags / notes</th><th></th></tr></thead><tbody>
         ${draft.map((d, i) => `<tr data-row="${i}">
           <td class="d-icon">${esc(d.icon)}</td>
-          <td><input data-f="name" value="${esc(d.name)}"></td>
+          <td><input data-f="name" value="${esc(d.name)}">
+            <div class="bm"><input data-f="brand" value="${esc(d.brand || '')}" placeholder="brand" title="Manufacturer (used to look up specs)"><input data-f="model" value="${esc(d.model || '')}" placeholder="model / part #" title="Exact model or part number (used to look up specs)"></div></td>
           <td><select data-f="category">${Object.keys(CATEGORIES).map(c => `<option ${c === d.category ? 'selected' : ''}>${c}</option>`).join('')}</select></td>
           <td><input data-f="weight" type="number" step="any" min="0" value="${weightToDisplay(d.weightKg, units)}"></td>
           <td><input data-f="qtyOwned" type="number" min="0" value="${d.qtyOwned}"></td>
-          <td class="small">${[d.lengthCm, d.widthCm, d.heightCm].some(Boolean) ? fmtDims(d.lengthCm, d.widthCm, d.heightCm, units) : '–'}${d.capacityL ? `<br>holds ${fmtVolSmall(d.capacityL, units)}` : ''}</td>
+          <td class="small">${[d.lengthCm, d.widthCm, d.heightCm].every(Boolean) ? fmtDims(d.lengthCm, d.widthCm, d.heightCm, units) : d.lengthCm ? `length ${lenToDisplay(d.lengthCm, units)} ${lenUnit(units)}` : '–'}${d.capacityL ? `<br>holds ${fmtVolSmall(d.capacityL, units)}` : ''}</td>
           <td class="small spec-cell">${specBadge(d)}</td>
           <td class="small">${d.useCases.slice(0, 4).map(t => `<span class="tag">${esc(t)}</span>`).join('')}${d.perPerson ? '<span class="tag alt">per person</span>' : ''}${d.consumable ? `<span class="tag alt">${d.perPersonDay}/person/day</span>` : ''}<br><span class="muted">${esc(d.notes)}</span></td>
           <td><button type="button" class="icon-btn" data-delrow="${i}" title="Remove">✕</button></td></tr>`).join('')}
@@ -126,9 +129,9 @@ export function openIntake({ initial = '', onAdd, goSettings, confirmLocal }) {
     if (!d.check) return '<span class="muted">not checked</span>';
     if (d.check.verified) {
       let host = d.check.source; try { host = new URL(d.check.source).hostname.replace(/^www\./, ''); } catch { /* keep */ }
-      return `<span class="badge ok">✅ verified</span><br>${d.check.changed ? `<span class="muted">${esc(d.check.changed)}</span><br>` : ''}${d.check.source ? `<a href="${esc(d.check.source)}" target="_blank" rel="noopener">${esc(host)} ↗</a>` : ''}`;
+      return `<span class="badge ok">✅ verified${d.check.partial ? ` (${d.check.partial})` : ''}</span><br>${d.check.changed ? `<span class="muted">${esc(d.check.changed)}</span><br>` : ''}${d.check.source ? `<a href="${esc(d.check.source)}" target="_blank" rel="noopener">${esc(host)} ↗</a>` : ''}`;
     }
-    return `<span class="badge est">≈ estimate</span><br><span class="muted">${esc(d.check.note || 'No published specs found')}</span>`;
+    return `<span class="badge est">≈ estimate</span><br><span class="muted">${esc(d.check.note || 'No published specs found')}</span>${d.check.tried?.length ? `<details class="tried"><summary>what was checked</summary>${d.check.tried.map(t => `<div>${esc(t)}</div>`).join('')}</details>` : ''}`;
   }
 
   async function verify() {
@@ -136,19 +139,26 @@ export function openIntake({ initial = '', onAdd, goSettings, confirmLocal }) {
     const local = isLocal();
     const targets = draft.map((d, i) => ({ d, i })).filter(({ d }) => d.name).slice(0, local ? 3 : 8);
     if (!targets.length) return;
-    const listing = targets.map(({ d, i }) => `${i}. ${d.name} (${d.category}; current estimate ${round(d.weightKg, 3)} kg, ${round(d.lengthCm, 1)}x${round(d.widthCm, 1)}x${round(d.heightCm, 1)} cm${d.capacityL ? `, ${round(d.capacityL, 1)} L` : ''})${d.specUrl ? ` [suggested page: ${d.specUrl}]` : ''}`).join('\n');
+    const listing = targets.map(({ d, i }) => `${i}. ${d.name}${d.brand || d.model ? ` [brand: ${d.brand || '?'}, model: ${d.model || '?'}]` : ''} (${d.category}; current estimate ${round(d.weightKg, 3)} kg, ${round(d.lengthCm, 1)}x${round(d.widthCm, 1)}x${round(d.heightCm, 1)} cm${d.capacityL ? `, ${round(d.capacityL, 1)} L` : ''})${d.specUrl ? ` [suggested page: ${d.specUrl}]` : ''}`).join('\n');
     try {
       let text, allowed = null;
-      if (hasNativeWebSearch()) {
-        verifying = 'Searching the web for manufacturer specs…'; view();
-        ({ text } = await chatWithWebSearch(VERIFY_SYSTEM(true), [{ role: 'user', content: `Verify the specs for these items:\n${listing}` }]));
-      } else {
+      const nv = nativeVerifier();
+      let native = false;
+      if (nv) {
+        verifying = `Searching the web with ${nv.provider === 'gemini' ? 'Gemini (Google Search)' : 'Claude web search'}…`; view();
+        try {
+          ({ text } = await chatWithWebSearch(VERIFY_SYSTEM(true), [{ role: 'user', content: `Verify the specs for these items:\n${listing}` }], nv));
+          native = true;
+        } catch (e) { console.warn('native web search failed, using free lookup', e); toast(`${nv.provider === 'gemini' ? 'Gemini' : 'Claude'} web search failed (${e.message}); trying the free lookup.`, 'warn', 6000); }
+      }
+      if (!native) {
         verifying = 'Reading product pages on the web…'; view();
         const ev = await gatherEvidence(targets.map(({ d }) => d), local ? { pagesPerItem: 1, charsPerPage: 1200 } : {});
         allowed = new Set(ev.flatMap(e => e.sources.map(s => s.url)));
+        ev.forEach((e, k) => { targets[k].d.tried = e.tried; });
         const evidence = ev.map((e, k) => `### Item ${targets[k].i}: ${targets[k].d.name}\n${e.sources.length ? e.sources.map(s => `Source: ${s.url}\n${s.excerpt}`).join('\n\n') : '(no pages found)'}`).join('\n\n');
         if (!allowed.size) {
-          targets.forEach(({ d }) => { d.check = { verified: false, note: 'No product pages could be read; kept the estimate.' }; });
+          targets.forEach(({ d }) => { d.check = { verified: false, note: 'No product pages with specs could be read; kept the estimate.', tried: d.tried }; });
           verifying = ''; view(); toast('Could not find spec pages for these items; kept the AI estimates.', 'warn', 6000);
           return;
         }
@@ -162,17 +172,18 @@ export function openIntake({ initial = '', onAdd, goSettings, confirmLocal }) {
         const d = draft[+r.index];
         if (!d) continue;
         const sourceOk = r.source && (!allowed || allowed.has(r.source));
-        if (r.verified && sourceOk && num(r.weightKg) > 0) {
+        const hasWeight = num(r.weightKg) > 0, hasDims = ['lengthCm', 'widthCm', 'heightCm'].some(k => num(r[k]) > 0);
+        if (r.verified && sourceOk && (hasWeight || hasDims)) {
           const prev = { w: d.weightKg };
           const changes = [];
           if (num(r.weightKg) > 0) d.weightKg = num(r.weightKg);
           ['lengthCm', 'widthCm', 'heightCm'].forEach(k => { if (num(r[k]) > 0) d[k] = num(r[k]); });
           if (d.category === 'Container' && num(r.capacityL) > 0) d.capacityL = num(r.capacityL);
           if (Math.abs(prev.w - d.weightKg) / Math.max(prev.w, 0.001) > 0.05) changes.push(`was ${weightToDisplay(prev.w, units)} ${weightUnit(units)}`);
-          d.check = { verified: true, source: r.source, note: r.note || '', changed: changes.join(', ') };
+          d.check = { verified: true, partial: !(hasWeight && hasDims) ? (hasWeight ? 'weight only' : 'size only') : '', source: r.source, note: r.note || '', changed: changes.join(', ') };
           ok++;
         } else {
-          d.check = { verified: false, note: r.verified && !sourceOk ? 'Source could not be confirmed; kept the estimate.' : (r.note || 'No published specs found; kept the estimate.') };
+          d.check = { verified: false, tried: d.tried, note: r.verified && !sourceOk ? 'Source could not be confirmed; kept the estimate.' : (r.note || 'No published specs found; kept the estimate.') };
         }
       }
       toast(`Checked ${targets.length} item${targets.length > 1 ? 's' : ''}: ${ok} verified from the web, ${targets.length - ok} kept as estimates.`, ok ? 'ok' : 'warn', 6000);
@@ -187,6 +198,8 @@ export function openIntake({ initial = '', onAdd, goSettings, confirmLocal }) {
       if (!d) return;
       d.name = tr.querySelector('[data-f=name]').value.trim();
       d.category = tr.querySelector('[data-f=category]').value;
+      const b = tr.querySelector('[data-f=brand]').value.trim(), mo = tr.querySelector('[data-f=model]').value.trim();
+      if (b !== (d.brand || '') || mo !== (d.model || '')) { d.brand = b; d.model = mo; d.specUrl = ''; if (b !== (d.brand || '')) d.domain = ''; }
       const w = tr.querySelector('[data-f=weight]').value;
       // only convert if the user changed it (avoids drift from rounded display values)
       if (num(w) !== num(weightToDisplay(d.weightKg, units))) d.weightKg = weightFromDisplay(w, units);
@@ -240,7 +253,7 @@ export function openIntake({ initial = '', onAdd, goSettings, confirmLocal }) {
     if (t.dataset.delrow !== undefined) { syncEdits(); draft.splice(+t.dataset.delrow, 1); view(); }
     if (t.hasAttribute('data-add')) {
       syncEdits();
-      const items = draft.filter(d => d.name).map(({ check, specUrl, ...d }) => ({
+      const items = draft.filter(d => d.name).map(({ check, specUrl, tried, domain, ...d }) => ({
         ...d, notes: [d.notes, check?.verified ? `Specs verified: ${check.source}` : ''].filter(Boolean).join(' · '),
       }));
       if (!items.length) return;
