@@ -48,7 +48,7 @@ export function relevance(it, req) {
   if (['Safety', 'Navigation'].includes(it.category) && uses.includes('emergency')) score += 3;
   if (it.category === 'Water' || it.category === 'Food') score += 1;
   if (req.transport === 'vehicle' && uses.includes('vehicle')) score += 2;
-  if (['canoe'].includes(req.transport) && (uses.includes('boat') || uses.includes('kayak'))) score += 3;
+  if (['canoe', 'ferry'].includes(req.transport) && (uses.includes('boat') || uses.includes('kayak'))) score += 3;
   if (words(req.notes).some(w => uses.includes(w))) score += 1;
   if (mustHaveMatch(it, req)) score += 100;
   return score;
@@ -95,7 +95,7 @@ function chooseContainers(packed, req) {
   const out = [];
   let cap = 0;
   // On foot: one pack per person first.
-  if (req.transport === 'foot') {
+  if (req.transport === 'foot' || req.transport === 'ferry') {
     const packs = cands.filter(x => /pack/i.test(x.c.name)).sort((a, b) => b.c.capacityL - a.c.capacityL);
     for (const { c } of packs) {
       for (let n = 0; n < (c.qtyOwned || 1) && out.length < (req.people || 1); n++) { out.push({ uid: uid('C'), itemId: c.id }); cap += c.capacityL; }

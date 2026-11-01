@@ -13,9 +13,9 @@ const V = l => fmtVolume(l, U());
 let aiBusy = false;
 let pendingHandle = null;
 
-const ENV_ICONS = { desert: '🏜️', forest: '🌲', mountain: '🏔️', wetland: '🦆', coastal: '🌊', arctic: '❄️', tropical: '🌴', grassland: '🌾', urban: '🏙️' };
+const ENV_ICONS = { island: '🏝️', desert: '🏜️', forest: '🌲', mountain: '🏔️', wetland: '🦆', coastal: '🌊', arctic: '❄️', tropical: '🌴', grassland: '🌾', urban: '🏙️' };
 const ACT_ICONS = { hiking: '🥾', backpacking: '🎒', camping: '🏕️', survey: '📋', sampling: '🧪', research: '🔬', wildlife: '🦌', photography: '📷',
-  boat: '🚤', kayak: '🛶', cooking: '🍳', 'day-trip': '☀️', overnight: '🌙', remote: '📡', basecamp: '⛺' };
+  boat: '🚤', kayak: '🛶', 'sea-kayak': '🛶', snorkel: '🤿', tidepooling: '🦀', birding: '🐦', cooking: '🍳', 'day-trip': '☀️', overnight: '🌙', remote: '📡', basecamp: '⛺' };
 
 // =====================================================================
 // Rendering
@@ -64,8 +64,8 @@ function viewPlanner() {
       <div class="card-head"><h2>🗺️ Quick Planner</h2><span class="muted">Describe the trip; FieldPack and your AI will build the load-out.</span></div>
       <div class="step"><span class="step-n">1</span><h3>The basics</h3></div>
       <div class="grid2">
-        <label>Trip name<input data-req="name" value="${esc(r.name)}" placeholder="e.g. Spring wetland survey"></label>
-        <label>Destination<input data-req="destination" value="${esc(r.destination)}" placeholder="e.g. Okefenokee NWR, GA"></label>
+        <label>Trip name<input data-req="name" value="${esc(r.name)}" placeholder="e.g. Santa Cruz Island sea-cave weekend"></label>
+        <label>Destination<input data-req="destination" value="${esc(r.destination)}" placeholder="e.g. Scorpion Ranch, Santa Cruz Island"></label>
         <label>Start date<input type="date" data-req="startDate" value="${esc(r.startDate)}"></label>
         <div class="grid2 tight">
           <label>Days <span class="big-num" id="daysOut">${r.days}</span><input type="range" min="1" max="21" data-req="days" value="${r.days}"></label>
@@ -101,20 +101,50 @@ function viewPlanner() {
   </section>`;
 }
 
+const SCENES = {
+  island:    { sky: ['#ffcf8a', '#9fdbe8'], far: '#7d9bb0', near: '#c4935f', top: '#9bb37a', water: '#1f8a9e', fauna: ['🦊', '🐋', '🦭'], arch: true },
+  coastal:   { sky: ['#ffd9a8', '#a8def0'], far: '#88a9a0', near: '#d8b57f', top: '#a9c27f', water: '#2a8fb0', fauna: ['🦀', '🐬', '🐚'] },
+  wetland:   { sky: ['#e7f2c9', '#a9dbe3'], far: '#7aa37a', near: '#5f8f4a', top: '#8cb860', water: '#4c9fb5', fauna: ['🦆', '🐸', '🌾'] },
+  desert:    { sky: ['#ffb36b', '#ffe3a8'], far: '#d99a62', near: '#e8b97c', top: '#d9a066', fauna: ['🌵', '🦎', '🌵'] },
+  forest:    { sky: ['#cfe9d8', '#a9d6e5'], far: '#4f7d5a', near: '#2f5e3f', top: '#3f7a4c', fauna: ['🌲', '🦌', '🍄'] },
+  mountain:  { sky: ['#bcd7f2', '#e8f2fb'], far: '#7f93b2', near: '#5d7590', top: '#f4f8fb', fauna: ['🦅', '🏔️', '🐐'] },
+  arctic:    { sky: ['#cfe3f4', '#f3f9fd'], far: '#c9dbea', near: '#e9f2f8', top: '#ffffff', water: '#7fb6d6', fauna: ['🐧', '❄️', '🦭'] },
+  tropical:  { sky: ['#ffd27a', '#8fe0e0'], far: '#3f9a6a', near: '#2f7d50', top: '#5fbf7a', water: '#22b3c4', fauna: ['🌴', '🦜', '🐢'] },
+  grassland: { sky: ['#ffe4a8', '#bfe3f0'], far: '#a7bf73', near: '#c9b860', top: '#d8c66f', fauna: ['🌾', '🦬', '🌼'] },
+  urban:     { sky: ['#c9d3e6', '#eef1f7'], far: '#9aa7bd', near: '#7a879c', top: '#8d99ae', fauna: ['🏙️', '🚏', '🐦'] },
+};
+
+function sceneSVG(env, people, vehicle) {
+  const sc = SCENES[env] || SCENES.island;
+  const land = sc.water ? 'M78 120 C92 100 112 80 140 77 C168 74 186 84 200 88 L200 120 L0 120Z' : 'M0 108 C50 84 90 96 130 82 C170 70 200 84 200 84 L200 120 L0 120Z';
+  return `<div class="scene ${sc.water ? 'wet' : ''}">
+    <svg viewBox="0 0 200 120" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      <defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${sc.sky[0]}"/><stop offset="1" stop-color="${sc.sky[1]}"/></linearGradient></defs>
+      <rect width="200" height="120" fill="url(#sky)"/>
+      <circle cx="160" cy="30" r="13" fill="#ffe08a" class="sun"/>
+      <path d="M0 86 C30 66 55 70 80 62 C105 54 120 70 145 64 C170 58 185 70 200 66 L200 120 L0 120Z" fill="${sc.far}" opacity=".75"/>
+      ${sc.water ? `<rect y="86" width="200" height="34" fill="${sc.water}"/>` : ''}
+      ${sc.water ? `<g class="waves" fill="none" stroke="#fff" stroke-opacity=".55" stroke-width="1.4"><path d="M-20 98 q5 -3 10 0 t10 0 t10 0 t10 0 t10 0 t10 0 t10 0 t10 0 t10 0 t10 0 t10 0 t10 0 t10 0 t10 0 t10 0 t10 0 t10 0 t10 0 t10 0 t10 0 t10 0 t10 0 t10 0 t10 0"/><path d="M-20 108 q5 -3 10 0 t10 0 t10 0 t10 0 t10 0 t10 0 t10 0 t10 0 t10 0 t10 0 t10 0 t10 0" stroke-opacity=".35"/></g>` : ''}
+      ${sc.arch ? `<path d="M14 92 L16 70 C19 62 38 60 46 67 L50 92 L42 92 L41 80 C38 73 27 73 25 80 L23 92Z" fill="${sc.near}"/><path d="M15 72 C19 63 38 61 47 68 L46 71 C38 64 21 65 16 74Z" fill="${sc.top}"/>` : ''}
+      <path d="${land}" fill="${sc.near}"/>
+      <path d="${land.replace(/ L200 120 L0 120Z$/, '')}" fill="none" stroke="${sc.top}" stroke-width="4" stroke-linecap="round"/>
+      <g fill="none" stroke="#fff" stroke-opacity=".7" stroke-width="1.2" class="birds"><path d="M40 28 q4 -4 8 0 q4 -4 8 0"/><path d="M62 20 q3 -3 6 0 q3 -3 6 0"/></g>
+    </svg>
+    <span class="f1">${sc.fauna[0]}</span><span class="f2">${sc.fauna[1]}</span><span class="f3">${sc.fauna[2]}</span>
+    ${sc.water ? `<span class="boat">${vehicle === '⛴️' || vehicle === '🛶' ? vehicle : '⛵'}</span>` : ''}
+    <div class="walkers">${'🧑‍🦱'.repeat(Math.min(people, 5))}${people > 5 ? `<small>+${people - 5}</small>` : ''}${sc.water ? '' : `<span class="vehicle">${vehicle}</span>`}</div>
+  </div>`;
+}
+
 function tripPreview() {
   const r = state.plan.request;
-  const env = r.environments[0];
-  const scene = { desert: ['🌵', '☀️', '🏜️'], forest: ['🌲', '🌳', '🍄'], mountain: ['🏔️', '⛰️', '🦅'], wetland: ['🦆', '🌾', '🐸'], coastal: ['🌊', '🐚', '🦀'],
-    arctic: ['❄️', '🧊', '🐧'], tropical: ['🌴', '🦜', '🌺'], grassland: ['🌾', '🦬', '🌼'], urban: ['🏙️', '🚏', '🌆'] }[env] || ['⛰️', '🌲', '🌤️'];
+  const env = r.environments[0] || 'island';
   const s = planStats();
   const t = TRANSPORT[r.transport] || TRANSPORT.custom;
   return `
-    <div class="scene" data-env="${esc(env || 'default')}">
-      <span class="s1">${scene[1]}</span><span class="s2">${scene[0]}</span><span class="s3">${scene[2]}</span>
-      <div class="walkers">${'🧑‍🔬'.repeat(Math.min(r.people, 6))}${r.people > 6 ? `<small>+${r.people - 6}</small>` : ''}<span class="vehicle">${t.icon}</span></div>
-    </div>
+    ${sceneSVG(env, r.people, t.icon)}
     <h3>${esc(r.name || 'Untitled trip')}</h3>
-    <p class="muted">${esc(r.destination || 'Somewhere wild')}${r.startDate ? ` · ${esc(r.startDate)}` : ''}</p>
+    <p class="muted">${esc(r.destination || 'Somewhere wild & salty')}${r.startDate ? ` · ${esc(r.startDate)}` : ''}</p>
     <div class="stat-row">
       <div><b>${r.days}</b><span>days</span></div><div><b>${r.people}</b><span>people</span></div>
       <div><b>${W(r.maxWeightKg)}</b><span>weight cap</span></div><div><b>${round(r.maxVolumeL, 0)} L</b><span>space cap</span></div>
@@ -730,9 +760,9 @@ const autosave = debounce(() => {
 
 function welcome() {
   openModal(`<div class="welcome">
-    <div class="big-emoji">🏔️🎒🤖</div>
+    <div class="big-emoji">🏝️🦊🎒</div>
     <h2>Welcome to FieldPack</h2>
-    <p>Plan field trips from your real gear. Your inventory and trip history live in an Excel workbook, and your AI of choice does the heavy analysis.</p>
+    <p>From a ferry ride out to the islands to a week of backcountry fieldwork: plan trips from your real gear. Your inventory and trip history live in an Excel workbook, and your AI of choice does the heavy analysis.</p>
     <div class="welcome-actions">
       <button class="btn primary big" data-w="open">📂 Open my Excel database</button>
       <button class="btn accent big" data-w="new">✨ Create a new database (with sample gear)</button>

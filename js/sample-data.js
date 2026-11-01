@@ -20,9 +20,9 @@ export const SAMPLE_ITEMS = [
   // Containers
   I('CT-001', '65L Expedition Backpack', 'Container', '🎒', 2.1, [80, 35, 30], { qty: 2, cap: 65, maxLoad: 25, uses: ['backpacking', 'hiking', 'overnight'], notes: 'Hip belt, rain cover included' }),
   I('CT-002', '30L Daypack', 'Container', '🎒', 0.9, [50, 30, 20], { qty: 2, cap: 30, maxLoad: 12, uses: ['day-trip', 'hiking', 'survey'] }),
-  I('CT-003', '70L Waterproof Duffel', 'Container', '👜', 1.4, [70, 40, 35], { qty: 1, cap: 70, maxLoad: 30, uses: ['vehicle', 'boat', 'flight'], env: ['coastal', 'wetland', 'all'] }),
+  I('CT-003', '70L Waterproof Duffel', 'Container', '👜', 1.4, [70, 40, 35], { qty: 1, cap: 70, maxLoad: 30, uses: ['vehicle', 'boat', 'flight'], env: ['island', 'coastal', 'wetland', 'all'] }),
   I('CT-004', '55L Rugged Tote', 'Container', '📦', 3.2, [60, 40, 35], { qty: 3, cap: 55, maxLoad: 40, uses: ['vehicle', 'basecamp'] }),
-  I('CT-005', '20L Dry Bag', 'Container', '🛍️', 0.15, [45, 25, 25], { qty: 3, cap: 20, maxLoad: 10, uses: ['boat', 'rain', 'kayak'], env: ['coastal', 'wetland', 'tropical', 'all'] }),
+  I('CT-005', '20L Dry Bag', 'Container', '🛍️', 0.15, [45, 25, 25], { qty: 3, cap: 20, maxLoad: 10, uses: ['boat', 'rain', 'kayak'], env: ['island', 'coastal', 'wetland', 'tropical', 'all'] }),
   I('CT-006', 'Hard Case (Instruments)', 'Container', '🧳', 4.5, [50, 40, 20], { qty: 1, cap: 25, maxLoad: 20, uses: ['electronics', 'vehicle', 'flight', 'sampling'], notes: 'Foam insert, waterproof' }),
 
   // Clothing
@@ -31,7 +31,7 @@ export const SAMPLE_ITEMS = [
   I('CL-003', 'Merino Base Layer Set', 'Clothing', '👕', 0.35, [25, 20, 6], { qty: 4, perPerson: true, uses: ['cold', 'overnight', 'hiking'], env: ['all'] }),
   I('CL-004', 'Field Pants', 'Clothing', '👖', 0.45, [30, 25, 5], { qty: 4, perPerson: true, uses: ['hiking', 'survey', 'sampling'], notes: 'Worn on travel day' }),
   I('CL-005', 'Wool Socks (pair)', 'Clothing', '🧦', 0.08, [15, 10, 4], { qty: 10, consumable: true, ppd: 1, uses: ['hiking', 'overnight'], notes: 'Plan one pair per person per day' }),
-  I('CL-006', 'Sun Hat', 'Clothing', '👒', 0.1, [35, 35, 10], { qty: 3, perPerson: true, uses: ['hot', 'sun', 'survey'], env: ['desert', 'coastal', 'tropical', 'all'] }),
+  I('CL-006', 'Sun Hat', 'Clothing', '👒', 0.1, [35, 35, 10], { qty: 3, volumeL: 2, perPerson: true, uses: ['hot', 'sun', 'survey'], env: ['desert', 'island', 'coastal', 'tropical', 'all'] }),
   I('CL-007', 'Work Gloves', 'Clothing', '🧤', 0.15, [25, 12, 3], { qty: 4, perPerson: true, uses: ['sampling', 'survey', 'basecamp'] }),
   I('CL-008', 'Waterproof Boots', 'Clothing', '🥾', 1.4, [32, 22, 15], { qty: 3, perPerson: true, uses: ['hiking', 'survey', 'worn'], notes: 'Worn, not packed' }),
 
@@ -52,7 +52,7 @@ export const SAMPLE_ITEMS = [
   // Water
   I('WT-001', 'Squeeze Water Filter', 'Water', '💧', 0.1, [15, 6, 6], { qty: 2, uses: ['hiking', 'overnight', 'backpacking'] }),
   I('WT-002', '3L Hydration Bladder', 'Water', '🫗', 0.2, [40, 20, 3], { qty: 3, perPerson: true, uses: ['hiking', 'day-trip', 'hot'], env: ['desert', 'all'] }),
-  I('WT-003', '20L Water Jug (empty)', 'Water', '🚰', 0.9, [35, 25, 30], { qty: 2, uses: ['vehicle', 'basecamp', 'hot'], env: ['desert', 'all'], notes: 'Adds 20 kg when full' }),
+  I('WT-003', '20L Water Jug (empty)', 'Water', '🚰', 0.9, [35, 25, 30], { qty: 2, uses: ['vehicle', 'basecamp', 'hot', 'camping'], env: ['desert', 'island', 'all'], notes: 'Adds 20 kg when full. Many island camps have little or no potable water, so check before you go' }),
   I('WT-004', 'Purification Tablets', 'Water', '💊', 0.02, [8, 5, 2], { qty: 4, uses: ['emergency', 'overnight'] }),
 
   // Navigation & safety
@@ -63,15 +63,15 @@ export const SAMPLE_ITEMS = [
   I('SF-003', 'Bear Spray', 'Safety', '🐻', 0.3, [22, 6, 6], { qty: 2, uses: ['wildlife', 'hiking'], env: ['forest', 'mountain'] }),
   I('SF-004', 'Headlamp', 'Safety', '🔦', 0.09, [8, 6, 5], { qty: 3, perPerson: true, uses: ['overnight', 'emergency', 'camping'] }),
   I('SF-005', 'Emergency Bivy', 'Safety', '🆘', 0.1, [10, 8, 5], { qty: 3, perPerson: true, uses: ['emergency', 'cold'] }),
-  I('SF-006', 'Sunscreen SPF50', 'Safety', '🧴', 0.12, [15, 5, 3], { qty: 3, uses: ['sun', 'hot', 'survey'], env: ['desert', 'coastal', 'tropical', 'mountain', 'all'] }),
+  I('SF-006', 'Sunscreen SPF50', 'Safety', '🧴', 0.12, [15, 5, 3], { qty: 3, uses: ['sun', 'hot', 'survey'], env: ['desert', 'island', 'coastal', 'tropical', 'mountain', 'all'] }),
 
   // Tools & electronics
   I('TL-001', 'Multitool', 'Tools', '🛠️', 0.25, [11, 4, 2], { qty: 2, uses: ['repair', 'survey', 'sampling'] }),
   I('TL-002', 'Folding Shovel', 'Tools', '⛏️', 0.6, [45, 15, 5], { qty: 1, uses: ['sampling', 'basecamp', 'vehicle'] }),
-  I('TL-003', 'Static Rope 30m', 'Tools', '🪢', 1.0, [30, 30, 10], { qty: 1, uses: ['rescue', 'mountain', 'boat'], env: ['mountain', 'coastal'] }),
+  I('TL-003', 'Static Rope 30m', 'Tools', '🪢', 1.0, [30, 30, 10], { qty: 1, uses: ['rescue', 'mountain', 'boat'], env: ['mountain', 'island', 'coastal'] }),
   I('TL-004', 'Duct Tape Roll', 'Tools', '🩹', 0.15, [10, 10, 5], { qty: 2, uses: ['repair'] }),
   I('EL-001', 'Power Bank 20,000mAh', 'Electronics', '🔋', 0.36, [15, 7, 2.5], { qty: 3, uses: ['electronics', 'overnight', 'survey'] }),
-  I('EL-002', 'Folding Solar Panel 21W', 'Electronics', '☀️', 0.5, [28, 16, 3], { qty: 1, uses: ['electronics', 'basecamp', 'remote'], env: ['desert', 'mountain', 'coastal', 'all'] }),
+  I('EL-002', 'Folding Solar Panel 21W', 'Electronics', '☀️', 0.5, [28, 16, 3], { qty: 1, uses: ['electronics', 'basecamp', 'remote'], env: ['desert', 'mountain', 'island', 'coastal', 'all'] }),
   I('EL-003', 'Camera + Lens', 'Electronics', '📷', 0.9, [15, 12, 12], { qty: 1, uses: ['photography', 'survey', 'wildlife'] }),
 
   // Field science
@@ -79,5 +79,14 @@ export const SAMPLE_ITEMS = [
   I('SC-002', 'Sample Bags (50 pk)', 'Science', '🧪', 0.1, [20, 15, 3], { qty: 6, uses: ['sampling', 'research'] }),
   I('SC-003', 'Soil Probe', 'Science', '📏', 0.9, [100, 4, 4], { qty: 1, uses: ['sampling', 'research'], env: ['forest', 'wetland', 'desert', 'all'] }),
   I('SC-004', 'Data Logger Kit', 'Science', '📟', 0.3, [15, 10, 5], { qty: 2, uses: ['research', 'electronics', 'survey'] }),
-  I('SC-005', 'Binoculars 10x42', 'Science', '🔭', 0.65, [15, 13, 6], { qty: 2, uses: ['wildlife', 'survey', 'research'] }),
+  // Island & ocean
+  I('IS-001', 'Snorkel Mask & Fins', 'Other', '🤿', 1.3, [60, 25, 12], { qty: 2, perPerson: true, uses: ['snorkel', 'sea-kayak', 'tidepooling'], env: ['island', 'coastal', 'tropical'] }),
+  I('IS-002', '3mm Wetsuit', 'Clothing', '🩱', 1.6, [35, 30, 12], { qty: 2, perPerson: true, uses: ['snorkel', 'sea-kayak', 'cold'], env: ['island', 'coastal'], notes: 'Channel waters run cold; ~13-18°C' }),
+  I('IS-003', 'Windproof Shell', 'Clothing', '🌬️', 0.25, [20, 15, 6], { qty: 3, perPerson: true, uses: ['hiking', 'camping', 'boat'], env: ['island', 'coastal', 'mountain'], notes: 'Afternoon wind is the norm out there' }),
+  I('IS-004', 'Animal-Proof Food Canister', 'Cooking', '🦊', 1.1, [30, 22, 22], { qty: 2, uses: ['camping', 'overnight', 'wildlife'], env: ['island', 'forest', 'mountain'], notes: 'Clever foxes and ravens raid unattended food' }),
+  I('IS-005', 'Sand & Wind Tent Stakes (8)', 'Shelter', '📌', 0.35, [25, 8, 4], { qty: 2, uses: ['camping', 'overnight'], env: ['island', 'coastal', 'desert'] }),
+  I('IS-006', 'Tide Chart & Field Guide', 'Navigation', '📘', 0.3, [21, 14, 2], { qty: 1, uses: ['tidepooling', 'birding', 'navigation', 'research'], env: ['island', 'coastal'] }),
+  I('IS-007', 'Marine VHF Radio', 'Safety', '📻', 0.3, [14, 6, 4], { qty: 1, uses: ['sea-kayak', 'boat', 'emergency'], env: ['island', 'coastal'] }),
+  I('IS-008', 'PFD / Life Vest', 'Safety', '🦺', 0.7, [50, 40, 8], { qty: 2, perPerson: true, uses: ['sea-kayak', 'kayak', 'boat'], env: ['island', 'coastal', 'wetland'] }),
+  I('SC-005', 'Binoculars 10x42', 'Science', '🔭', 0.65, [15, 13, 6], { qty: 2, uses: ['wildlife', 'survey', 'research', 'birding'] }),
 ];

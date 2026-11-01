@@ -1,6 +1,8 @@
-# 🎒 FieldPack: AI field-trip planner
+# 🏝️🦊 FieldPack: island & field-trip planner
 
 A web app for planning trips into the field. It uses **your Excel workbook as the database** of gear (supplies, containers, clothing, tools and so on) and connects to **the AI of your choice** for detailed trip analysis.
+
+The look is inspired by the California Channel Islands: deep channel blues, kelp greens, island-fox orange, coreopsis gold and sandstone, on topo-map paper with chunky outdoor-gear buttons. It has an island terrain with an animated sea-arch scene, a ferry transport preset, and snorkel, sea-kayak, tidepooling and birding activities, plus island-ready sample gear (wetsuit, PFD, marine VHF, animal-proof food canister, sand stakes and more). It supports light and dark ("night at anchor") modes.
 
 ![tabs](https://img.shields.io/badge/views-Quick%20Plan%20·%20Pack%20Board%20·%20Inventory%20·%20History%20·%20Settings-2f6f4e)
 

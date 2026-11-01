@@ -3,29 +3,30 @@
 import { uid } from './utils.js';
 
 export const CATEGORIES = {
-  Container:   { icon: '🎒', color: '#7c5cff' },
-  Clothing:    { icon: '🧥', color: '#ff7a59' },
-  Shelter:     { icon: '⛺', color: '#2bb673' },
-  Sleep:       { icon: '🛌', color: '#4c8dff' },
-  Cooking:     { icon: '🔥', color: '#ff4d6d' },
-  Food:        { icon: '🍲', color: '#f4a300' },
-  Water:       { icon: '💧', color: '#1fb6d6' },
-  Navigation:  { icon: '🧭', color: '#9b6b43' },
-  Safety:      { icon: '⛑️', color: '#e63946' },
-  Tools:       { icon: '🛠️', color: '#6c757d' },
-  Electronics: { icon: '🔋', color: '#00a19a' },
-  Science:     { icon: '🧪', color: '#b04fd1' },
-  Personal:    { icon: '🪥', color: '#d4a373' },
-  Other:       { icon: '📦', color: '#8d99ae' },
+  Container:   { icon: '🎒', color: '#0b5e7e' },  // deep ocean
+  Clothing:    { icon: '🧥', color: '#f0624d' },  // sunset coral
+  Shelter:     { icon: '⛺', color: '#4f7d3a' },  // kelp
+  Sleep:       { icon: '🛌', color: '#5b6fb5' },  // dusk
+  Cooking:     { icon: '🔥', color: '#d9682b' },  // island fox
+  Food:        { icon: '🍲', color: '#e9a812' },  // coreopsis
+  Water:       { icon: '💧', color: '#1f9bb0' },  // channel teal
+  Navigation:  { icon: '🧭', color: '#a8724a' },  // sandstone cliff
+  Safety:      { icon: '⛑️', color: '#d63a3a' },
+  Tools:       { icon: '🛠️', color: '#66796c' },  // sage stone
+  Electronics: { icon: '🔋', color: '#2a9d8f' },  // sea glass
+  Science:     { icon: '🧪', color: '#8e5aa8' },  // urchin
+  Personal:    { icon: '🪥', color: '#c29a5b' },
+  Other:       { icon: '📦', color: '#7f939b' },
 };
 export const catInfo = c => CATEGORIES[c] || CATEGORIES.Other;
 
-export const ENVIRONMENTS = ['desert', 'forest', 'mountain', 'wetland', 'coastal', 'arctic', 'tropical', 'grassland', 'urban'];
-export const ACTIVITIES = ['hiking', 'backpacking', 'camping', 'survey', 'sampling', 'research', 'wildlife', 'photography', 'boat', 'kayak', 'cooking', 'day-trip', 'overnight', 'remote', 'basecamp'];
+export const ENVIRONMENTS = ['island', 'coastal', 'desert', 'forest', 'mountain', 'wetland', 'arctic', 'tropical', 'grassland', 'urban'];
+export const ACTIVITIES = ['hiking', 'backpacking', 'camping', 'survey', 'sampling', 'research', 'wildlife', 'photography', 'boat', 'sea-kayak', 'snorkel', 'tidepooling', 'birding', 'cooking', 'day-trip', 'overnight', 'remote', 'basecamp'];
 
 // Transport presets: limits are per person (multiplied by party size) unless `total` is set.
 export const TRANSPORT = {
   foot:    { label: 'On foot (backpacks)', icon: '🥾', kgPerPerson: 15, lPerPerson: 70 },
+  ferry:   { label: 'Island ferry + carry to camp', icon: '⛴️', kgPerPerson: 20, lPerPerson: 100 },
   vehicle: { label: '4x4 / Truck', icon: '🛻', total: true, kg: 400, l: 1500 },
   canoe:   { label: 'Canoe / Kayak', icon: '🛶', kgPerPerson: 45, lPerPerson: 180 },
   plane:   { label: 'Small bush plane', icon: '🛩️', kgPerPerson: 23, lPerPerson: 140 },
@@ -39,8 +40,8 @@ const SETTINGS_KEY = 'fieldpack.settings.v1';
 
 export const defaultRequest = () => ({
   name: '', destination: '', startDate: '', days: 2, people: 2,
-  environments: [], activities: [], transport: 'foot',
-  maxWeightKg: 30, maxVolumeL: 140, mustHaves: '', notes: '',
+  environments: [], activities: [], transport: 'ferry',
+  maxWeightKg: 40, maxVolumeL: 200, mustHaves: '', notes: '',
 });
 
 export const emptyPlan = () => ({

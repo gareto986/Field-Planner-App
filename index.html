@@ -3,22 +3,26 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b5e7e">
   <title>FieldPack Trip Planner</title>
   <meta name="description" content="Plan field trips from your Excel gear inventory with AI analysis.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎒</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700;9..144,900&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
-      <svg viewBox="0 0 64 40" class="logo" aria-hidden="true">
-        <path d="M0 40 L20 10 L30 24 L40 6 L64 40 Z" fill="var(--forest)"/>
-        <path d="M40 6 L46 15 L42 14 L38 18 L35 13 Z" fill="#fff" opacity=".9"/>
-        <circle cx="52" cy="9" r="5" fill="var(--sun)"/>
+      <svg viewBox="0 0 64 46" class="logo" aria-hidden="true">
+        <circle cx="46" cy="14" r="9" fill="#f2b632"/>
+        <path d="M4 34 C10 22 18 14 28 14 C36 14 40 22 44 26 L50 34 Z" fill="#a8724a"/>
+        <path d="M6 31 C12 21 19 16 28 16 C35 16 39 22 42 25" fill="none" stroke="#9bb37a" stroke-width="3" stroke-linecap="round"/>
+        <path d="M44 34 L46 24 C48 20 56 20 58 24 L60 34 L56 34 L55 29 C54 26 50 26 49 29 L48 34 Z" fill="#a8724a"/>
+        <path d="M0 36 q4 -3 8 0 t8 0 t8 0 t8 0 t8 0 t8 0 t8 0 t8 0 L64 46 L0 46 Z" fill="#8fd5c9"/>
+        <path d="M0 40 q4 -3 8 0 t8 0 t8 0 t8 0 t8 0 t8 0 t8 0 t8 0" fill="none" stroke="#fff" stroke-width="1.5" opacity=".8"/>
       </svg>
-      <div><b>FieldPack</b><small>AI field-trip planner</small></div>
+      <div><b>FieldPack</b><small>Island &amp; field trip planner</small></div>
     </div>
     <nav class="tabs" aria-label="Main">
       <button data-view="planner">🗺️ <span>Quick Plan</span></button>
@@ -35,6 +39,7 @@
     </div>
   </header>
   <main id="view"></main>
+  <footer class="site-foot"><span>🦊 Pack it in, pack it out</span><span>🌊 Check the marine forecast</span><span>🏝️ Leave no trace</span></footer>
   <div id="modalRoot"></div>
   <div id="toasts" aria-live="polite"></div>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
