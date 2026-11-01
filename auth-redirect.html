@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Signing in…</title>
+  <style>body{font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;background:#f6efe1;color:#17343d}</style>
+</head>
+<body>
+  <p>Finishing Microsoft sign-in… this window will close by itself.</p>
+  <!-- Microsoft sign-in lands here and hands the result back to FieldPack. -->
+  <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@5.25.1/lib/redirect-bridge/msal-redirect-bridge.min.js"></script>
+  <script>
+    msalRedirectBridge.broadcastResponseToMainFrame().catch(function (e) {
+      document.body.innerHTML = '<p>Sign-in could not complete: ' + (e && e.message ? e.message : e) + '</p>';
+    });
+  </script>
+</body>
+</html>

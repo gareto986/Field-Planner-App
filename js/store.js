@@ -22,7 +22,14 @@ export const CATEGORIES = {
 export const catInfo = c => CATEGORIES[c] || CATEGORIES.Other;
 
 export const ENVIRONMENTS = ['island', 'coastal', 'desert', 'forest', 'mountain', 'wetland', 'arctic', 'tropical', 'grassland', 'urban'];
-export const ACTIVITIES = ['survey', 'excavation', 'testing', 'screening', 'mapping', 'site-recording', 'monitoring', 'sampling', 'hiking', 'backpacking', 'camping', 'research', 'wildlife', 'photography', 'boat', 'sea-kayak', 'snorkel', 'tidepooling', 'birding', 'cooking', 'day-trip', 'overnight', 'remote', 'basecamp'];
+// Activity chips shown in the Quick Planner, grouped for archaeology / research / field-study work.
+// Users can add their own (saved in settings.customActivities).
+export const ACTIVITY_GROUPS = {
+  'Fieldwork methods': ['survey', 'excavation', 'testing', 'screening', 'mapping', 'site-recording', 'monitoring', 'photogrammetry', 'geophysics', 'coring'],
+  'Science & sampling': ['sampling', 'environmental-sampling', 'faunal-analysis', 'botanical-survey', 'wildlife-survey', 'geology', 'lab-processing', 'curation', 'research'],
+  'Logistics': ['day-trip', 'overnight', 'camping', 'basecamp', 'boat', 'vehicle', 'remote'],
+};
+export const ACTIVITIES = Object.values(ACTIVITY_GROUPS).flat();
 
 // Transport presets: limits are per person (multiplied by party size) unless `total` is set.
 export const TRANSPORT = {
@@ -42,7 +49,7 @@ const SETTINGS_KEY = 'fieldpack.settings.v1';
 export const defaultRequest = () => ({
   name: '', destination: '', startDate: '', days: 5, people: 4,
   environments: ['island'], activities: ['survey', 'excavation', 'camping', 'overnight'], transport: 'ferry',
-  maxWeightKg: 100, maxVolumeL: 480, mustHaves: '', notes: '',
+  maxWeightKg: 100, maxVolumeL: 480, mustHaves: '', notes: '', resupplyDays: 0,
 });
 
 export const emptyPlan = () => ({
@@ -64,6 +71,8 @@ export const state = {
 
 export const settings = {
   units: 'metric',
+  customActivities: [],
+  cloud: { clientId: '', last: null },
   autosave: true,
   ai: { provider: 'local', model: '', apiKey: '', baseUrl: '', keys: {} },
 };
@@ -93,7 +102,7 @@ export function saveSettings() {
 export function restore() {
   try {
     const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null');
-    if (s) Object.assign(settings, s, { ai: { ...settings.ai, ...(s.ai || {}) } });
+    if (s) Object.assign(settings, s, { ai: { ...settings.ai, ...(s.ai || {}) }, cloud: { ...settings.cloud, ...(s.cloud || {}) } });
   } catch { /* ignore */ }
   try {
     const raw = JSON.parse(localStorage.getItem(STATE_KEY) || 'null');

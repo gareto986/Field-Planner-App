@@ -19,7 +19,9 @@ export function limitsFor(transport, people) {
 }
 
 export function suggestedQty(it, req) {
-  const people = Math.max(1, req.people || 1), days = Math.max(1, req.days || 1);
+  const people = Math.max(1, req.people || 1);
+  // With a resupply every N days, carry consumables for one leg only.
+  const days = Math.max(1, req.resupplyDays > 0 ? Math.min(req.days || 1, req.resupplyDays) : (req.days || 1));
   let q = 1;
   if (it.consumable && it.perPersonDay > 0) q = Math.ceil(it.perPersonDay * people * days);
   else if (it.perPerson) q = people;

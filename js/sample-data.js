@@ -72,13 +72,13 @@ export const SAMPLE_ITEMS = [
   I('TL-004', 'Duct Tape Roll', 'Tools', '🩹', 0.15, [10, 10, 5], { qty: 2, uses: ['repair'] }),
   I('EL-001', 'Power Bank 20,000mAh', 'Electronics', '🔋', 0.36, [15, 7, 2.5], { qty: 3, uses: ['electronics', 'overnight', 'survey'] }),
   I('EL-002', 'Folding Solar Panel 21W', 'Electronics', '☀️', 0.5, [28, 16, 3], { qty: 1, uses: ['electronics', 'basecamp', 'remote'], env: ['desert', 'mountain', 'island', 'coastal', 'all'] }),
-  I('EL-003', 'Camera + Lens', 'Electronics', '📷', 0.9, [15, 12, 12], { qty: 1, uses: ['photography', 'survey', 'wildlife', 'excavation', 'site-recording'] }),
+  I('EL-003', 'Camera + Lens', 'Electronics', '📷', 0.9, [15, 12, 12], { qty: 1, uses: ['photography', 'photogrammetry', 'survey', 'wildlife-survey', 'excavation', 'site-recording'] }),
 
   // Field science
   I('SC-001', 'Waterproof Field Notebook', 'Science', '📓', 0.2, [20, 13, 1.5], { qty: 5, perPerson: true, uses: ['survey', 'sampling', 'research', 'excavation', 'site-recording'] }),
-  I('SC-002', 'Soil/C14 Sample Bags (50 pk)', 'Science', '🧪', 0.1, [20, 15, 3], { qty: 6, uses: ['sampling', 'research', 'excavation', 'testing'] }),
-  I('SC-003', 'Soil Probe', 'Science', '📏', 0.9, [100, 4, 4], { qty: 1, uses: ['sampling', 'research', 'testing', 'survey'], env: ['forest', 'wetland', 'desert', 'all'] }),
-  I('SC-004', 'Data Logger Kit', 'Science', '📟', 0.3, [15, 10, 5], { qty: 2, uses: ['research', 'electronics', 'survey'] }),
+  I('SC-002', 'Soil/C14 Sample Bags (50 pk)', 'Science', '🧪', 0.1, [20, 15, 3], { qty: 6, uses: ['sampling', 'environmental-sampling', 'research', 'excavation', 'testing'] }),
+  I('SC-003', 'Soil Probe', 'Science', '📏', 0.9, [100, 4, 4], { qty: 1, uses: ['sampling', 'coring', 'environmental-sampling', 'research', 'testing', 'survey', 'geology'], env: ['forest', 'wetland', 'desert', 'all'] }),
+  I('SC-004', 'Data Logger Kit', 'Science', '📟', 0.3, [15, 10, 5], { qty: 2, uses: ['research', 'environmental-sampling', 'monitoring', 'survey'] }),
   // Archaeology field kit
   I('AR-001', '4.5" Pointing Trowel', 'Archaeology', '🔺', 0.25, [28, 8, 4], { qty: 6, perPerson: true, uses: ['excavation', 'testing', 'site-recording'], notes: 'Sharpen edges before the trip' }),
   I('AR-002', 'Shaker Screen 1/8" Mesh', 'Archaeology', '🧺', 4.5, [60, 45, 15], { qty: 2, uses: ['excavation', 'screening', 'testing'], env: ['island', 'coastal', 'all'], notes: 'Fine mesh for shell midden and small fish bone' }),
@@ -94,9 +94,9 @@ export const SAMPLE_ITEMS = [
   I('AR-012', 'Photo Scale & North Arrow', 'Archaeology', '🧭', 0.15, [30, 5, 1], { qty: 2, uses: ['excavation', 'survey', 'site-recording', 'photography'] }),
   I('AR-013', 'Field Forms, Clipboard & Pencils', 'Archaeology', '📋', 0.7, [32, 24, 3], { qty: 2, uses: ['excavation', 'survey', 'site-recording', 'monitoring'] }),
   I('AR-014', 'Permits & Site Records Binder', 'Archaeology', '📁', 0.6, [30, 25, 4], { qty: 1, uses: ['excavation', 'survey', 'testing', 'site-recording', 'monitoring'], notes: 'Keep site locations confidential; do not leave in vehicles or camp' }),
-  I('AR-015', 'Sub-meter GNSS Receiver', 'Archaeology', '🛰️', 1.1, [22, 12, 8], { qty: 1, uses: ['survey', 'mapping', 'site-recording'], notes: 'Charge batteries; pack in the hard case' }),
+  I('AR-015', 'Sub-meter GNSS Receiver', 'Archaeology', '🛰️', 1.1, [22, 12, 8], { qty: 1, uses: ['survey', 'mapping', 'site-recording', 'photogrammetry', 'geophysics'], notes: 'Charge batteries; pack in the hard case' }),
   I('AR-016', 'Folding Kneeling Pad', 'Archaeology', '🧎', 0.2, [40, 25, 2], { qty: 4, perPerson: true, uses: ['excavation', 'testing'] }),
-  I('AR-017', 'Padded Specimen Boxes (6)', 'Archaeology', '📦', 0.6, [30, 20, 12], { qty: 3, uses: ['excavation', 'sampling', 'testing'], notes: 'For fragile finds and radiocarbon samples' }),
+  I('AR-017', 'Padded Specimen Boxes (6)', 'Archaeology', '📦', 0.6, [30, 20, 12], { qty: 3, uses: ['excavation', 'sampling', 'testing', 'curation', 'faunal-analysis'], notes: 'For fragile finds and radiocarbon samples' }),
   I('AR-018', 'Hand Pick / Mattock', 'Archaeology', '⛏️', 1.3, [40, 20, 4], { qty: 2, uses: ['excavation', 'testing'] }),
 
   // Island & ocean
@@ -105,8 +105,8 @@ export const SAMPLE_ITEMS = [
   I('IS-003', 'Windproof Shell', 'Clothing', '🌬️', 0.25, [20, 15, 6], { qty: 3, perPerson: true, uses: ['hiking', 'camping', 'boat'], env: ['island', 'coastal', 'mountain'], notes: 'Afternoon wind is the norm out there' }),
   I('IS-004', 'Animal-Proof Food Canister', 'Cooking', '🦊', 1.1, [30, 22, 22], { qty: 2, uses: ['camping', 'overnight', 'wildlife'], env: ['island', 'forest', 'mountain'], notes: 'Clever foxes and ravens raid unattended food' }),
   I('IS-005', 'Sand & Wind Tent Stakes (8)', 'Shelter', '📌', 0.35, [25, 8, 4], { qty: 2, uses: ['camping', 'overnight'], env: ['island', 'coastal', 'desert'] }),
-  I('IS-006', 'Tide Chart & Field Guide', 'Navigation', '📘', 0.3, [21, 14, 2], { qty: 1, uses: ['tidepooling', 'birding', 'navigation', 'research'], env: ['island', 'coastal'] }),
+  I('IS-006', 'Tide Chart & Field Guide', 'Navigation', '📘', 0.3, [21, 14, 2], { qty: 1, uses: ['botanical-survey', 'wildlife-survey', 'navigation', 'research'], env: ['island', 'coastal'] }),
   I('IS-007', 'Marine VHF Radio', 'Safety', '📻', 0.3, [14, 6, 4], { qty: 1, uses: ['sea-kayak', 'boat', 'emergency'], env: ['island', 'coastal'] }),
   I('IS-008', 'PFD / Life Vest', 'Safety', '🦺', 0.7, [50, 40, 8], { qty: 2, perPerson: true, uses: ['sea-kayak', 'kayak', 'boat'], env: ['island', 'coastal', 'wetland'] }),
-  I('SC-005', 'Binoculars 10x42', 'Science', '🔭', 0.65, [15, 13, 6], { qty: 2, uses: ['wildlife', 'survey', 'research', 'birding'] }),
+  I('SC-005', 'Binoculars 10x42', 'Science', '🔭', 0.65, [15, 13, 6], { qty: 2, uses: ['wildlife-survey', 'survey', 'research'] }),
 ];

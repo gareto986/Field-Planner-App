@@ -7,6 +7,7 @@ import { DEFAULT_LOCAL_MODEL, hasWebGPU, localChat } from './local-ai.js';
 
 export const PROVIDERS = {
   local:     { label: 'Free built-in AI (runs in your browser)', defaultModel: DEFAULT_LOCAL_MODEL, keyHint: 'no key needed', local: true },
+  openrouter:{ label: 'Free cloud models (OpenRouter)', defaultModel: 'google/gemma-4-31b-it:free', keyHint: 'sk-or-… (free account)', keyUrl: 'https://openrouter.ai/settings/keys', free: true },
   anthropic: { label: 'Anthropic Claude', defaultModel: 'claude-opus-5-5', keyHint: 'sk-ant-…', keyUrl: 'https://console.anthropic.com/settings/keys' },
   openai:    { label: 'OpenAI', defaultModel: 'gpt-4o', keyHint: 'sk-…', keyUrl: 'https://platform.openai.com/api-keys' },
   gemini:    { label: 'Google Gemini', defaultModel: 'gemini-2.5-flash', keyHint: 'AIza…', keyUrl: 'https://aistudio.google.com/apikey' },
@@ -63,10 +64,30 @@ export async function chat(system, messages) {
       { systemInstruction: { parts: [{ text: system }] }, contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })) });
     return (d.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('') || '(empty response)';
   }
+  if (c.provider === 'openrouter') {
+    // Free open-weight models. Up to two other free models act as automatic fallbacks
+    // when the chosen one is rate-limited or rotated out.
+    const fallbacks = (settings.ai.freeModels || []).filter(m => m !== c.model).slice(0, 2);
+    const d = await postJSON('https://openrouter.ai/api/v1/chat/completions',
+      { Authorization: `Bearer ${c.apiKey}`, 'HTTP-Referer': location.origin, 'X-Title': 'FieldPack' },
+      { model: c.model, ...(fallbacks.length ? { models: [c.model, ...fallbacks] } : {}), messages: [{ role: 'system', content: system }, ...messages] });
+    const text = d.choices?.[0]?.message?.content || '(empty response)';
+    return text.replace(/<think>[\s\S]*?<\/think>\s*/g, '').trim();
+  }
   const base = c.provider === 'openai' ? 'https://api.openai.com/v1' : c.baseUrl.replace(/\/+$/, '');
   const d = await postJSON(`${base}/chat/completions`, c.apiKey ? { Authorization: `Bearer ${c.apiKey}` } : {},
     { model: c.model, messages: [{ role: 'system', content: system }, ...messages] });
   return d.choices?.[0]?.message?.content || '(empty response)';
+}
+
+/** Live list of OpenRouter's free models (the list rotates, so fetch it rather than hard-coding). No key needed. */
+export async function fetchFreeModels() {
+  const res = await fetch('https://openrouter.ai/api/v1/models');
+  if (!res.ok) throw new Error(`OpenRouter model list: HTTP ${res.status}`);
+  const { data } = await res.json();
+  return data.filter(m => m.id.endsWith(':free') && !/safety|guard|embed/i.test(m.id))
+    .map(m => ({ id: m.id, name: m.name || m.id, context: m.context_length || 0 }))
+    .sort((a, b) => (b.id === PROVIDERS.openrouter.defaultModel) - (a.id === PROVIDERS.openrouter.defaultModel) || b.context - a.context);
 }
 
 export async function testConnection() {
@@ -112,6 +133,7 @@ export function buildTripBrief(plan = state.plan, { compact = false } = {}) {
 - Trip: ${r.name || '(unnamed)'}
 - Destination: ${r.destination || '(not given)'}
 - Start date: ${r.startDate || '(not given)'}; duration: ${r.days} day(s); party size: ${r.people}
+- Resupply: ${r.resupplyDays > 0 ? `every ${r.resupplyDays} days (pack consumables for one leg)` : (r.days > 10 ? 'none planned; for a trip this long, suggest a resupply schedule if needed' : 'none')}
 - Environments: ${fmtList(r.environments)}
 - Activities: ${fmtList(r.activities)}
 - Transport: ${r.transport}; max total weight ${r.maxWeightKg} kg; max total volume ${r.maxVolumeL} L

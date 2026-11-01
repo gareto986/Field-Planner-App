@@ -3,6 +3,7 @@
 // Uses the File System Access API (Chrome/Edge) to save back into the same
 // file, with a download fallback for other browsers.
 import { num, splitList } from './utils.js';
+import * as cloudApi from './onedrive.js';
 
 export const ITEM_COLS = [
   ['id', 'ID'], ['name', 'Name'], ['category', 'Category'], ['icon', 'Icon'],
@@ -127,10 +128,13 @@ export function buildWorkbook(baseWb, items, trips) {
 const XLSX_TYPE = { description: 'Excel workbook', accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] } };
 export const canSaveInPlace = 'showOpenFilePicker' in window;
 
-let handle = null;
+let handle = null;   // local file (File System Access API)
+let cloud = null;    // Excel Online file: { driveId, id, name, webUrl, eTag }
 let workbook = null;
 
 export const currentHandle = () => handle;
+export const cloudFile = () => cloud;
+export const canAutosave = () => !!(handle || cloud);
 
 // Persist the file handle in IndexedDB so the user can reconnect after reload.
 function idb() {
@@ -161,7 +165,7 @@ export async function openWorkbook() {
   if (canSaveInPlace) {
     try {
       const [h] = await window.showOpenFilePicker({ types: [XLSX_TYPE], excludeAcceptAllOption: false });
-      handle = h; await idbSet('handle', h).catch(() => {});
+      handle = h; cloud = null; await idbSet('handle', h).catch(() => {});
       return await readFile(await h.getFile());
     } catch (e) { if (e.name === 'AbortError') return null; throw e; }
   }
@@ -172,15 +176,35 @@ export async function openWorkbook() {
   });
 }
 
+/** Open a workbook from Excel Online (OneDrive / SharePoint). */
+export async function openCloudWorkbook(f) {
+  const { buf, meta } = await cloudApi.downloadWorkbook(f);
+  handle = null;
+  cloud = meta;
+  cloudApi.rememberFile(meta);
+  workbook = XLSX.read(buf, { type: 'array', cellDates: true });
+  return { name: meta.name, webUrl: meta.webUrl, cloud: true, ...parseWorkbook(workbook) };
+}
+
+/** Create a new workbook in the user's OneDrive from the current data. */
+export async function createCloudWorkbook(items, trips, name = 'fieldpack-database.xlsx') {
+  handle = null;
+  workbook = buildWorkbook(null, items, trips);
+  const data = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+  cloud = await cloudApi.createInOneDrive(name, data);
+  cloudApi.rememberFile(cloud);
+  return cloud;
+}
+
 export async function reconnect(h) {
   if (!(await ensurePermission(h))) throw new Error('Permission to the workbook was not granted.');
-  handle = h;
+  handle = h; cloud = null;
   return readFile(await h.getFile());
 }
 
 /** Create a new workbook file. Returns its name, or null if cancelled. */
 export async function createWorkbook(items, trips, suggestedName = 'fieldpack-database.xlsx') {
-  workbook = null;
+  workbook = null; cloud = null;
   if (canSaveInPlace) {
     try {
       handle = await window.showSaveFilePicker({ suggestedName, types: [XLSX_TYPE] });
@@ -195,9 +219,14 @@ export async function createWorkbook(items, trips, suggestedName = 'fieldpack-da
 }
 
 /** Write items/trips back into the workbook. Returns 'saved' or 'downloaded'. */
-export async function saveWorkbook(items, trips, fallbackName = 'fieldpack-database.xlsx') {
+export async function saveWorkbook(items, trips, fallbackName = 'fieldpack-database.xlsx', { force = false } = {}) {
   workbook = buildWorkbook(workbook, items, trips);
   const data = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+  if (cloud) {
+    const updated = await cloudApi.uploadWorkbook(cloud, data, { force });
+    cloud = { ...cloud, ...updated };
+    return 'saved-cloud';
+  }
   if (handle) {
     if (!(await ensurePermission(handle))) throw new Error('Write permission denied for the workbook.');
     try {
@@ -214,4 +243,4 @@ export async function saveWorkbook(items, trips, fallbackName = 'fieldpack-datab
   return 'downloaded';
 }
 
-export function disconnect() { handle = null; workbook = null; idbSet('handle', null).catch(() => {}); }
+export function disconnect() { handle = null; cloud = null; workbook = null; cloudApi.rememberFile(null); idbSet('handle', null).catch(() => {}); }

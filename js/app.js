@@ -1,21 +1,24 @@
-import { state, settings, commit, persist, saveSettings, restore, subscribe, CATEGORIES, catInfo, ENVIRONMENTS, ACTIVITIES,
+import { state, settings, commit, persist, saveSettings, restore, subscribe, CATEGORIES, catInfo, ENVIRONMENTS, ACTIVITIES, ACTIVITY_GROUPS,
   TRANSPORT, emptyPlan, defaultRequest, itemById, nextItemId } from './store.js';
 import { $, $$, esc, uid, num, round, fmtWeight, fmtVolume, weightToDisplay, weightFromDisplay, weightUnit, splitList,
   toast, openModal, confirmDialog, markdown, debounce } from './utils.js';
 import { autoPack, binPack, planStats, packingSummary, itemVolume, isContainer, isWorn, limitsFor, suggestedQty, relevance } from './planner.js';
 import * as excel from './excel.js';
+import * as cloud from './onedrive.js';
 import { LOCAL_MODELS, hasWebGPU, gpuStatus, isModelCached, loadLocalModel, onLocalProgress, loadedModel } from './local-ai.js';
-import { PROVIDERS, isLocal, aiConfig, aiReady, chat, testConnection, SYSTEM_PROMPT, buildTripBrief, parseSuggestion, stripJson, iconFor } from './ai.js';
+import { PROVIDERS, fetchFreeModels, isLocal, aiConfig, aiReady, chat, testConnection, SYSTEM_PROMPT, buildTripBrief, parseSuggestion, stripJson, iconFor } from './ai.js';
 import { SAMPLE_ITEMS } from './sample-data.js';
+import { openIntake } from './intake.js';
 
 const U = () => settings.units;
 const W = kg => fmtWeight(kg, U());
 const V = l => fmtVolume(l, U());
 let aiBusy = false;
 let pendingHandle = null;
+let pendingCloud = null; // Excel Online file remembered from last session, waiting for sign-in
 
 const ENV_ICONS = { island: '🏝️', desert: '🏜️', forest: '🌲', mountain: '🏔️', wetland: '🦆', coastal: '🌊', arctic: '❄️', tropical: '🌴', grassland: '🌾', urban: '🏙️' };
-const ACT_ICONS = { survey: '🚶', excavation: '⛏️', testing: '🕳️', screening: '🧺', mapping: '🗺️', 'site-recording': '📋', monitoring: '👀', hiking: '🥾', backpacking: '🎒', camping: '🏕️', sampling: '🧪', research: '🔬', wildlife: '🦌', photography: '📷',
+const ACT_ICONS = { photogrammetry: '📸', geophysics: '📡', coring: '🔩', 'environmental-sampling': '💧', 'faunal-analysis': '🦴', 'botanical-survey': '🌿', 'wildlife-survey': '🦎', geology: '🪨', 'lab-processing': '🔬', curation: '🗄️', research: '📚', vehicle: '🛻', survey: '🚶', excavation: '⛏️', testing: '🕳️', screening: '🧺', mapping: '🗺️', 'site-recording': '📋', monitoring: '👀', hiking: '🥾', backpacking: '🎒', camping: '🏕️', sampling: '🧪', research: '🔬', wildlife: '🦌', photography: '📷',
   boat: '🚤', kayak: '🛶', 'sea-kayak': '🛶', snorkel: '🤿', tidepooling: '🦀', birding: '🐦', cooking: '🍳', 'day-trip': '☀️', overnight: '🌙', remote: '📡', basecamp: '⛺' };
 
 // =====================================================================
@@ -38,7 +41,10 @@ function renderWorkbookStatus() {
   const el = $('#wbStatus');
   if (wb.connected) {
     el.className = `pill ${wb.dirty ? 'warn' : 'ok'}`;
-    el.innerHTML = `📗 <b>${esc(wb.name)}</b> · ${wb.dirty ? 'unsaved changes' : 'saved'}`;
+    el.innerHTML = `${wb.cloud ? '☁️' : '📗'} <b>${esc(wb.name)}</b> · ${wb.dirty ? 'unsaved changes' : 'saved'}`;
+  } else if (pendingCloud) {
+    el.className = 'pill warn clickable';
+    el.innerHTML = `☁️ Reconnect <b>${esc(pendingCloud.name)}</b>`;
   } else if (pendingHandle) {
     el.className = 'pill warn clickable';
     el.innerHTML = `🔌 Reconnect <b>${esc(pendingHandle.name)}</b>`;
@@ -56,8 +62,10 @@ function chips(list, selected, field, icons) {
 // ---------------- Quick Planner ----------------
 function viewPlanner() {
   const r = state.plan.request;
-  const tagPool = new Set(ACTIVITIES);
-  state.items.forEach(i => splitList(i.useCases).forEach(t => t !== 'worn' && tagPool.add(t)));
+  const custom = (settings.customActivities || []).filter(a => !ACTIVITIES.includes(a));
+  // keep anything already selected (e.g. from an older trip) visible
+  const extra = r.activities.filter(a => !ACTIVITIES.includes(a) && !custom.includes(a));
+  const end = endDate(r);
   const lim = limitsFor(r.transport, r.people);
   return `
   <section class="planner">
@@ -69,14 +77,22 @@ function viewPlanner() {
         <label>Destination<input data-req="destination" value="${esc(r.destination)}" placeholder="e.g. Santa Rosa Island, Channel Islands NP"></label>
         <label>Start date<input type="date" data-req="startDate" value="${esc(r.startDate)}"></label>
         <div class="grid2 tight">
-          <label>Days <span class="big-num" id="daysOut">${r.days}</span><input type="range" min="1" max="21" data-req="days" value="${r.days}"></label>
+          <label>Days <span class="stepper"><button type="button" data-step="days" data-d="-1">−</button><input type="number" class="days-in" min="1" max="999" data-req="days" value="${r.days}" aria-label="Days"><button type="button" data-step="days" data-d="1">+</button></span></label>
           <label>People <span class="stepper"><button type="button" data-step="people" data-d="-1">−</button><b id="peopleOut">${r.people}</b><button type="button" data-step="people" data-d="1">+</button></span></label>
         </div>
       </div>
+      <div class="row wrap day-presets"><span class="muted small">Quick picks:</span>
+        ${[[3, 'Long weekend'], [7, '1 week'], [14, '2 weeks'], [30, '1 month'], [60, '2 months'], [90, 'Field season · 3 mo']].map(([n, l]) => `<button type="button" class="chip mini-chip ${r.days === n ? 'on' : ''}" data-days="${n}">${l}</button>`).join('')}
+        <span class="muted small" id="endDate">${end ? `Ends <b>${end}</b>` : ''}</span></div>
+      <div class="grid2 tight resupply"><label>Resupply every (days) <small class="muted">optional, for long trips: consumables are packed for one leg</small><input type="number" min="0" max="999" data-req="resupplyDays" value="${r.resupplyDays || ''}" placeholder="none"></label></div>
       <div class="step"><span class="step-n">2</span><h3>Terrain</h3></div>
       <div class="chips">${chips(ENVIRONMENTS, r.environments, 'environments', ENV_ICONS)}</div>
       <div class="step"><span class="step-n">3</span><h3>What you'll be doing</h3></div>
-      <div class="chips">${chips([...tagPool], r.activities, 'activities', ACT_ICONS)}</div>
+      ${Object.entries(ACTIVITY_GROUPS).map(([g, list]) => `<div class="act-group"><span class="act-label">${esc(g)}</span><div class="chips">${chips(list, r.activities, 'activities', ACT_ICONS)}</div></div>`).join('')}
+      <div class="act-group"><span class="act-label">Your own</span><div class="chips">
+        ${[...custom, ...extra].map(a => `<span class="chip-wrap">${chips([a], r.activities, 'activities', ACT_ICONS)}${custom.includes(a) ? `<button type="button" class="chip-x" data-del-act="${esc(a)}" title="Remove from your list">✕</button>` : ''}</span>`).join('')}
+        <form class="add-act" id="addAct"><input name="act" placeholder="＋ Add an activity (e.g. rock-art recording)" maxlength="40"><button class="btn small">Add</button></form>
+      </div></div>
       <div class="step"><span class="step-n">4</span><h3>How you're getting there</h3></div>
       <div class="transport">${Object.entries(TRANSPORT).map(([k, t]) => `
         <button type="button" class="tcard ${r.transport === k ? 'on' : ''}" data-transport="${k}"><span>${t.icon}</span>${esc(t.label)}</button>`).join('')}
@@ -193,6 +209,14 @@ const STRATA_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 60"
 const STRATA_URL = `url("data:image/svg+xml,${encodeURIComponent(STRATA_SVG)}")`;
 const strata = () => `<div class="strata" style='background-image:${STRATA_URL}' aria-hidden="true"></div>`;
 
+function endDate(r) {
+  if (!r.startDate || !r.days) return '';
+  const d = new Date(`${r.startDate}T12:00:00`);
+  if (isNaN(d)) return '';
+  d.setDate(d.getDate() + r.days - 1);
+  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+}
+
 const miniBar = pct => `<div class="minibar"><i style="width:${Math.min(100, pct * 100)}%;background:${pctColor(pct)}"></i></div>`;
 const pctColor = p => p > 1 ? 'var(--bad)' : p > 0.85 ? 'var(--warn)' : 'var(--good)';
 
@@ -269,7 +293,7 @@ function viewBoard() {
 
   <section class="board">
     <aside class="card shelf" data-drop="shelf">
-      <div class="card-head"><h3>🧺 Gear shelf</h3><span class="muted small">Drag into a bag, or tap +</span></div>
+      <div class="card-head"><h3>🧺 Gear shelf</h3><span class="muted small">Drag into a bag, or tap +</span><button class="btn tiny" data-action="ai-intake" title="Add new gear by describing it">🤖 New gear</button></div>
       <input class="search" id="shelfSearch" placeholder="Filter gear…" value="${esc(state.shelfFilter || '')}">
       <div class="shelf-list">
         ${Object.entries(groups).map(([cat, list]) => `
@@ -379,6 +403,7 @@ function viewInventory() {
       <input name="weight" type="number" step="any" min="0" placeholder="Weight (${weightUnit(U())})">
       <input name="qty" type="number" min="0" placeholder="Qty" value="1">
       <button class="btn primary">Add</button>
+      <button type="button" class="btn accent" data-action="ai-intake">🤖 Add with AI</button>
       <button type="button" class="btn" data-action="new-item">＋ Detailed item…</button>
     </form>
   </section>
@@ -430,6 +455,37 @@ function viewHistory() {
 }
 
 // ---------------- Settings ----------------
+function cloudCard() {
+  const cs = cloud.cloudSettings();
+  const wb = state.workbook;
+  return `<div class="card" id="cloudCard">
+    <div class="card-head"><h2>☁️ Excel Online</h2><span class="muted">Keep the database in OneDrive or SharePoint so the whole team can use it.</span></div>
+    ${wb.connected && wb.cloud ? `<p>Connected to <b>${esc(wb.name)}</b> in Excel Online. ${wb.webUrl ? `<a href="${esc(wb.webUrl)}" target="_blank" rel="noopener">Open in Excel ↗</a>` : ''}</p>` : ''}
+    ${cloud.siteClientId() && !cs.clientId ? '<p class="small">✅ This site is already set up for Excel Online. Just sign in with your Microsoft account.</p>' : ''}
+    <div class="grid2"><label>Microsoft app Client ID ${cloud.siteClientId() ? '<small class="muted">(optional, overrides the site default)</small>' : ''}<input id="cloudClientId" value="${esc(cs.clientId)}" placeholder="${cloud.siteClientId() ? 'using the site default' : 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'}" autocomplete="off"></label>
+      <div class="cloud-acct"><span class="small muted">Account</span><b id="cloudAcct">${cloud.cloudConfigured() ? 'Checking…' : 'Not set up yet'}</b></div></div>
+    <div class="row wrap" style="margin-top:.8rem">
+      <button class="btn" data-action="cloud-save-id">Save Client ID</button>
+      <button class="btn primary" data-action="cloud-signin" ${cloud.cloudConfigured() ? '' : 'disabled'}>Sign in with Microsoft</button>
+      <button class="btn accent" data-action="cloud-browse" ${cloud.cloudConfigured() ? '' : 'disabled'}>☁️ Browse workbooks</button>
+      <button class="btn" data-action="cloud-link" ${cloud.cloudConfigured() ? '' : 'disabled'}>🔗 Open from link</button>
+      <button class="btn" data-action="cloud-new" ${cloud.cloudConfigured() ? '' : 'disabled'}>✨ New in OneDrive</button>
+      <button class="btn ghost" data-action="cloud-signout" ${cloud.cloudConfigured() ? '' : 'disabled'}>Sign out</button>
+    </div>
+    <details ${cloud.cloudConfigured() ? '' : 'open'}><summary>${cloud.siteClientId() ? 'Use your own app registration instead (optional)' : 'One-time setup (about 5 minutes, free)'}</summary>
+      <ol class="small setup-steps">
+        <li>Go to <a href="https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener">Microsoft Entra → App registrations</a> (or <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener">Azure portal</a>) and sign in with your Microsoft account. Click <b>New registration</b>.</li>
+        <li>Name it <b>FieldPack</b>. Under <i>Supported account types</i>, pick <b>Accounts in any organizational directory and personal Microsoft accounts</b> (or only your organization, if IT prefers).</li>
+        <li>Under <i>Redirect URI</i>, choose platform <b>Single-page application (SPA)</b> and enter exactly:<br><code class="copy">${esc(cloud.redirectUri())}</code><br>
+          Add one redirect URI for every address you open FieldPack from (e.g. your published web address too).</li>
+        <li>Click <b>Register</b>, then copy the <b>Application (client) ID</b> and paste it above.</li>
+        <li>Under <b>API permissions</b>, confirm <i>Microsoft Graph → User.Read</i> and add <i>Files.ReadWrite.All</i> (delegated). In a work tenant, an admin may need to grant consent.</li>
+      </ol>
+      <p class="muted small">The Client ID isn't a secret. Sign-in happens directly with Microsoft; FieldPack never sees your password, and files go straight between your browser and Microsoft.</p>
+    </details>
+  </div>`;
+}
+
 function localSettings(c) {
   const gpu = hasWebGPU();
   return `<div class="local-ai">
@@ -454,17 +510,23 @@ function viewSettings() {
     <div class="card">
       <div class="card-head"><h2>🤖 AI connection</h2><span class="muted">Use the free built-in AI, or bring your own. Requests never go through any FieldPack server.</span></div>
       <div class="providers">${Object.entries(PROVIDERS).map(([k, v]) => `<button class="tcard ${c.provider === k ? 'on' : ''}" data-provider="${k}">
-        <span>${{ local: '🏕️', anthropic: '✳️', openai: '⚪', gemini: '💎', compatible: '🦙' }[k]}</span>${esc(v.label)}</button>`).join('')}</div>
+        <span>${{ local: '🏕️', openrouter: '🆓', anthropic: '✳️', openai: '⚪', gemini: '💎', compatible: '🦙' }[k]}</span>${esc(v.label)}</button>`).join('')}</div>
       ${c.provider === 'local' ? localSettings(c) : `<div class="grid2">
-        <label>Model<input id="aiModel" value="${esc(settings.ai.model)}" placeholder="${esc(p.defaultModel)}"></label>
+        ${c.provider === 'openrouter'
+          ? `<label>Free model <select id="aiModel"><option value="${esc(c.model)}">${esc(c.model)}</option></select><small class="muted" id="freeModelsNote">Loading the current list of free models…</small></label>`
+          : `<label>Model<input id="aiModel" value="${esc(settings.ai.model)}" placeholder="${esc(p.defaultModel)}"></label>`}
         <label>API key ${p.keyUrl ? `<a href="${p.keyUrl}" target="_blank" rel="noopener" class="small">get a key ↗</a>` : ''}<input id="aiKey" type="password" autocomplete="off" value="${esc(c.apiKey)}" placeholder="${esc(p.keyHint)}"></label>
         ${c.provider === 'compatible' ? `<label class="span2">Base URL<input id="aiBase" value="${esc(settings.ai.baseUrl)}" placeholder="${esc(p.baseUrl)}"></label>` : ''}
       </div>
       <div class="row wrap"><button class="btn primary" data-action="ai-save">Save</button><button class="btn" data-action="ai-test">🔌 Test connection</button><span id="aiTestOut" class="muted small"></span></div>
       <p class="muted small">🔐 Your key is stored only in this browser's local storage, and the Excel file never sees it. Use a key with a spending limit.
       ${c.provider === 'compatible' ? 'For Ollama, start it with <code>OLLAMA_ORIGINS=*</code> so the browser can reach it.' : ''}
-      ${c.provider === 'anthropic' ? 'Claude is called with direct browser access enabled, and refusals fall back automatically on current models.' : ''}</p>`}
+      ${c.provider === 'anthropic' ? 'Claude is called with direct browser access enabled, and refusals fall back automatically on current models.' : ''}</p>
+      ${c.provider === 'openrouter' ? `<div class="note-box"><b>🆓 Free open models, in the cloud.</b> Create a free OpenRouter account (no credit card), make a key, and paste it above.
+        You get open-weight models like Gemma and Nemotron at no cost, with daily limits (roughly 50 requests/day on a free account) and automatic fallback to another free model if one is busy.
+        <br><b>Privacy:</b> free providers may log prompts. Don't put exact site locations or other confidential details in trip notes when using free cloud models; use the built-in AI for sensitive trips.</div>` : ''}`}
     </div>
+    ${cloudCard()}
     <div class="card">
       <div class="card-head"><h2>📗 Excel database</h2></div>
       <p>${state.workbook.connected ? `Connected to <b>${esc(state.workbook.name)}</b>. ${excel.canSaveInPlace ? 'Saves write straight back into the file.' : ''}` : 'No workbook connected. Data lives in this browser until you save.'}</p>
@@ -497,6 +559,16 @@ function viewSettings() {
 // After-render wiring (things delegation can't easily handle)
 // =====================================================================
 function afterRender() {
+  const addAct = $('#addAct');
+  if (addAct) addAct.onsubmit = e => {
+    e.preventDefault();
+    const a = addAct.act.value.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    if (!a) return;
+    settings.customActivities = [...new Set([...(settings.customActivities || []), a])]; saveSettings();
+    if (!state.plan.request.activities.includes(a)) state.plan.request.activities.push(a);
+    commit({ dirty: false });
+    toast(`Added "${a}". Tag gear with it in Inventory so auto-pack can match it.`, 'ok');
+  };
   const shelfSearch = $('#shelfSearch');
   if (shelfSearch) {
     const apply = () => {
@@ -539,6 +611,16 @@ function afterRender() {
     $$('.model-opt').forEach(o => o.classList.toggle('on', o.contains(r)));
   });
   if ($('.cache-flag')) refreshCacheFlags();
+  const acctEl = $('#cloudAcct');
+  if (acctEl && cloud.cloudConfigured()) cloud.currentAccount().then(a => { const el = $('#cloudAcct'); if (el) el.textContent = a ? `${a.name || ''} (${a.username})` : 'Not signed in'; });
+  const freeSel = $('select#aiModel');
+  if (freeSel) fetchFreeModels().then(list => {
+    settings.ai.freeModels = list.map(m => m.id); saveSettings();
+    const cur = aiConfig().model;
+    if (!list.some(m => m.id === cur)) list.unshift({ id: cur, name: `${cur} (not in current free list)`, context: 0 });
+    freeSel.innerHTML = list.map(m => `<option value="${esc(m.id)}" ${m.id === cur ? 'selected' : ''}>${esc(m.name)}${m.context ? ` · ${Math.round(m.context / 1000)}K context` : ''}</option>`).join('');
+    const note = $('#freeModelsNote'); if (note) note.textContent = `${list.length} free models available right now. The list changes over time.`;
+  }).catch(() => { const note = $('#freeModelsNote'); if (note) note.textContent = 'Could not load the free model list; using the saved model.'; });
   if ($('#gpuStatus') && hasWebGPU()) gpuStatus().then(g => {
     const el = $('#gpuStatus'); if (!el) return;
     el.textContent = `${g.ok ? '✅' : '⚠️'} ${g.message}`; el.classList.toggle('danger-text', !g.ok);
@@ -709,6 +791,17 @@ function aiApply() {
 }
 
 // ---------- Inventory ----------
+function startIntake(initial = '') {
+  openIntake({
+    initial,
+    goSettings: () => setView('settings'),
+    onAdd: items => {
+      items.forEach(it => upsertItem({ ...it, id: nextItemId(it.category) }));
+      toast(`Added ${items.length} item${items.length > 1 ? 's' : ''} to inventory 🎉`, 'ok');
+    },
+  });
+}
+
 function upsertItem(item) {
   item.updated = new Date().toISOString().slice(0, 10);
   const i = state.items.findIndex(x => x.id === item.id);
@@ -723,7 +816,7 @@ const EMOJI = ['🎒', '👜', '📦', '🧳', '🛍️', '🧥', '👕', '👖'
 
 function itemModal(existing, prefill = {}) {
   const it = existing || { id: '', name: '', category: 'Other', icon: '', weightKg: 0, qtyOwned: 1, useCases: [], environments: ['all'], ...prefill };
-  const tagPool = [...new Set([...ACTIVITIES, 'rain', 'cold', 'hot', 'sun', 'emergency', 'navigation', 'electronics', 'repair', 'vehicle', 'worn',
+  const tagPool = [...new Set([...ACTIVITIES, ...(settings.customActivities || []), 'rain', 'cold', 'hot', 'sun', 'emergency', 'navigation', 'electronics', 'repair', 'worn',
     ...state.items.flatMap(i => splitList(i.useCases))])];
   openModal(`
     <h2>${existing ? 'Edit item' : 'New inventory item'}</h2>
@@ -754,7 +847,7 @@ function itemModal(existing, prefill = {}) {
           <input name="perPersonDay" type="number" step="any" min="0" value="${it.perPersonDay || ''}" class="mini"> per person per day</label>
       </fieldset>
       <label>Use cases <small class="muted">(comma separated; tap to add)</small><input name="useCases" value="${esc(splitList(it.useCases).join(', '))}"></label>
-      <div class="chips small-chips">${tagPool.slice(0, 40).map(t => `<button type="button" class="chip" data-addtag="${esc(t)}">${esc(t)}</button>`).join('')}</div>
+      <div class="chips small-chips">${tagPool.slice(0, 60).map(t => `<button type="button" class="chip" data-addtag="${esc(t)}">${esc(t)}</button>`).join('')}</div>
       <label>Environments</label>
       <div class="chips small-chips">${['all', ...ENVIRONMENTS].map(e => `<button type="button" class="chip ${splitList(it.environments).includes(e) ? 'on' : ''}" data-envtoggle="${e}">${ENV_ICONS[e] || '🌐'} ${e}</button>`).join('')}</div>
       <label>Notes / details<textarea name="notes" rows="2">${esc(it.notes || '')}</textarea></label>
@@ -809,6 +902,96 @@ function itemModal(existing, prefill = {}) {
 }
 
 // ---------- Workbook ----------
+function wbOpenChooser() {
+  openModal(`<h2>Open a workbook</h2>
+    <div class="welcome-actions">
+      <button class="btn primary big" data-src="local">💻 From this computer</button>
+      <button class="btn accent big" data-src="cloud">☁️ From Excel Online (OneDrive / SharePoint)</button>
+    </div>`, { onMount: (m, close) => m.addEventListener('click', e => {
+      const src = e.target.closest('[data-src]')?.dataset.src; if (!src) return;
+      close(); src === 'local' ? wbOpen() : cloudBrowse();
+    }) });
+}
+
+/** Make sure we're signed in to Microsoft (popup if needed). Returns false if not configured. */
+async function cloudEnsureSignedIn() {
+  if (!cloud.cloudConfigured()) {
+    setView('settings');
+    setTimeout(() => $('#cloudCard')?.scrollIntoView({ behavior: 'smooth' }), 50);
+    toast('One-time setup: add your Microsoft app Client ID to connect Excel Online.', 'warn', 7000);
+    return false;
+  }
+  if (!(await cloud.currentAccount())) await cloud.signIn();
+  return true;
+}
+
+async function cloudOpen(f) {
+  try {
+    toast(`Opening ${f.name} from Excel Online…`);
+    const res = await excel.openCloudWorkbook(f);
+    pendingCloud = null;
+    await loadWorkbookData(res);
+  } catch (e) {
+    if (e.needsSignIn) { pendingCloud = f; render(); }
+    toast(`Could not open ${f.name}: ${e.message}`, 'bad', 8000);
+  }
+}
+
+async function cloudBrowse() {
+  try { if (!(await cloudEnsureSignedIn())) return; } catch (e) { return toast(`Microsoft sign-in failed: ${e.message}`, 'bad', 8000); }
+  let files = [];
+  const close = openModal(`<h2>☁️ Open from Excel Online</h2>
+    <p class="muted small">Your recent and OneDrive workbooks. For a file in a SharePoint/Teams site you haven't opened recently, paste its share link.</p>
+    <div class="row wrap"><input id="cloudFilter" class="grow" placeholder="Filter by name…">
+      <button class="btn" data-cloud-link>🔗 Open from a link</button><button class="btn" data-cloud-new>✨ New in OneDrive</button></div>
+    <div id="cloudList" class="cloud-list"><div class="msg assistant thinking"><span></span><span></span><span></span> Loading your workbooks…</div></div>`, {
+    wide: true,
+    onMount: m => m.addEventListener('click', e => {
+      const b = e.target.closest('[data-cloud-file],[data-cloud-link],[data-cloud-new]'); if (!b) return;
+      if (b.dataset.cloudFile !== undefined) { close(); cloudOpen(files[+b.dataset.cloudFile]); }
+      if (b.hasAttribute('data-cloud-link')) { close(); cloudOpenLink(); }
+      if (b.hasAttribute('data-cloud-new')) { close(); cloudNew(); }
+    }),
+  });
+  const draw = q => {
+    const el = $('#cloudList'); if (!el) return;
+    const list = files.map((f, i) => ({ f, i })).filter(({ f }) => !q || f.name.toLowerCase().includes(q.toLowerCase()));
+    el.innerHTML = list.map(({ f, i }) => `<button class="cloud-file" data-cloud-file="${i}"><span>📗</span><b>${esc(f.name)}</b>
+      <small class="muted">${esc(f.where || '')}${f.modified ? ` · modified ${esc(new Date(f.modified).toLocaleString())}` : ''}</small></button>`).join('')
+      || '<p class="muted">No workbooks found. Use “Open from a link” or create a new one.</p>';
+  };
+  try {
+    files = await cloud.listWorkbooks();
+    draw('');
+    const fi = $('#cloudFilter'); if (fi) fi.oninput = () => draw(fi.value);
+  } catch (e) { const el = $('#cloudList'); if (el) el.innerHTML = `<p class="danger-text">${esc(e.message)}</p>`; }
+}
+
+function cloudOpenLink() {
+  openModal(`<h2>🔗 Open from a share link</h2>
+    <p class="muted small">In Excel Online (or OneDrive/SharePoint/Teams), click <b>Share → Copy link</b> on the workbook and paste it here.</p>
+    <form id="linkForm" class="intake-form"><input name="url" placeholder="https://…sharepoint.com/… or https://1drv.ms/…" required>
+      <div class="row end"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">Open</button></div></form>`, {
+    onMount: (m, close) => { m.querySelector('#linkForm').onsubmit = async e => {
+      e.preventDefault(); const url = e.target.url.value.trim(); close();
+      try { if (!(await cloudEnsureSignedIn())) return; cloudOpen(await cloud.resolveShareLink(url)); }
+      catch (err) { toast(`Could not open that link: ${err.message}`, 'bad', 8000); }
+    }; },
+  });
+}
+
+async function cloudNew() {
+  try {
+    if (!(await cloudEnsureSignedIn())) return;
+    if (!state.items.length) state.items = structuredClone(SAMPLE_ITEMS);
+    const f = await excel.createCloudWorkbook(state.items, state.trips);
+    Object.assign(state.workbook, { name: f.name, connected: true, cloud: true, webUrl: f.webUrl, dirty: false, lastSaved: new Date().toISOString() });
+    pendingHandle = null; pendingCloud = null;
+    commit({ dirty: false });
+    toast(`Created ${f.name} in your OneDrive (FieldPack folder) ☁️`, 'ok');
+  } catch (e) { toast(`Could not create the workbook: ${e.message}`, 'bad', 8000); }
+}
+
 async function wbOpen() {
   try {
     const res = await excel.openWorkbook();
@@ -819,8 +1002,9 @@ async function wbOpen() {
 
 async function loadWorkbookData(res) {
   state.items = res.items; state.trips = res.trips;
-  Object.assign(state.workbook, { name: res.name, connected: true, dirty: false, lastSaved: new Date().toISOString() });
+  Object.assign(state.workbook, { name: res.name, connected: true, cloud: !!res.cloud, webUrl: res.webUrl || '', dirty: false, lastSaved: new Date().toISOString() });
   pendingHandle = null;
+  if (!res.cloud) { pendingCloud = null; cloud.rememberFile(null); }
   commit({ dirty: false });
   toast(`Loaded ${res.items.length} items and ${res.trips.length} trips from ${res.name}`, 'ok');
   if (!res.items.length && await confirmDialog('This workbook has no items yet. Add the sample field gear to get started?', 'Add sample gear')) {
@@ -833,34 +1017,45 @@ async function wbNew() {
     if (!state.items.length) state.items = structuredClone(SAMPLE_ITEMS);
     const name = await excel.createWorkbook(state.items, state.trips);
     if (!name) return;
-    Object.assign(state.workbook, { name, connected: excel.canSaveInPlace, dirty: false, lastSaved: new Date().toISOString() });
+    Object.assign(state.workbook, { name, connected: excel.canSaveInPlace, cloud: false, webUrl: '', dirty: false, lastSaved: new Date().toISOString() });
+    pendingCloud = null; cloud.rememberFile(null);
     commit({ dirty: false });
     toast(excel.canSaveInPlace ? `Created ${name}` : `Downloaded ${name}. Open it later to keep working.`, 'ok');
   } catch (e) { toast(`Could not create workbook: ${e.message}`, 'bad', 7000); }
 }
 
 let saving = false;
-async function wbSave({ quiet = false } = {}) {
+async function wbSave({ quiet = false, force = false } = {}) {
   if (saving) return; saving = true;
   try {
-    if (!excel.currentHandle() && !quiet && excel.canSaveInPlace && !state.workbook.connected) { saving = false; return wbNew(); }
-    const how = await excel.saveWorkbook(state.items, state.trips, state.workbook.name || 'fieldpack-database.xlsx');
+    if (!excel.canAutosave() && !quiet && excel.canSaveInPlace && !state.workbook.connected) { saving = false; return wbNew(); }
+    const how = await excel.saveWorkbook(state.items, state.trips, state.workbook.name || 'fieldpack-database.xlsx', { force });
     state.workbook.dirty = false; state.workbook.lastSaved = new Date().toISOString();
     commit({ dirty: false });
-    if (!quiet) toast(how === 'saved' ? `Saved to ${state.workbook.name} 📗` : 'Downloaded updated workbook', 'ok');
-  } catch (e) { toast(e.message, 'bad', 8000); } finally { saving = false; }
+    if (!quiet) toast({ saved: `Saved to ${state.workbook.name} 📗`, 'saved-cloud': `Saved to ${state.workbook.name} in Excel Online ☁️` }[how] || 'Downloaded updated workbook', 'ok');
+  } catch (e) {
+    saving = false;
+    if (e.status === 412) {
+      const ok = await confirmDialog(`${state.workbook.name} was changed in Excel Online since you opened it (maybe by a teammate). Overwrite it with your version? Choose Cancel to keep theirs; then reopen the workbook to get the latest.`, 'Overwrite');
+      if (ok) return wbSave({ quiet, force: true });
+      return;
+    }
+    if (e.needsSignIn || e.status === 401) { toast('Sign in to Microsoft again to keep saving (Settings → Excel Online).', 'bad', 8000); return; }
+    toast(e.message, 'bad', 8000);
+  } finally { saving = false; }
 }
 const autosave = debounce(() => {
-  if (settings.autosave && state.workbook.connected && state.workbook.dirty && excel.currentHandle()) wbSave({ quiet: true });
-}, 1500);
+  if (settings.autosave && state.workbook.connected && state.workbook.dirty && excel.canAutosave()) wbSave({ quiet: true });
+}, 3000);
 
 function welcome() {
   openModal(`<div class="welcome">
     <div class="big-emoji">🏝️🏺⛏️</div>
     <h2>Welcome to FieldPack</h2>
-    <p>From a ferry ride out to the islands for survey to a week of excavation, plan field trips from your real kit. Your inventory and trip history live in an Excel workbook, and your AI of choice does the heavy analysis.</p>
+    <p>From a day of survey to a season of excavation, plan field trips from your real kit. Your inventory and trip history live in an Excel workbook, and your AI of choice does the heavy analysis.</p>
     <div class="welcome-actions">
-      <button class="btn primary big" data-w="open">📂 Open my Excel database</button>
+      <button class="btn primary big" data-w="open">📂 Open my Excel database (this computer)</button>
+      <button class="btn big" data-w="cloud">☁️ Open from Excel Online (OneDrive / SharePoint)</button>
       <button class="btn accent big" data-w="new">✨ Create a new database (with sample gear)</button>
       <button class="btn ghost" data-w="try">Just explore with sample data</button>
     </div></div>`, {
@@ -868,6 +1063,7 @@ function welcome() {
       const w = e.target.closest('[data-w]')?.dataset.w; if (!w) return;
       close();
       if (w === 'open') wbOpen();
+      if (w === 'cloud') { state.items = state.items.length ? state.items : structuredClone(SAMPLE_ITEMS); commit({ dirty: false }); cloudBrowse(); }
       if (w === 'new') { state.items = structuredClone(SAMPLE_ITEMS); wbNew(); }
       if (w === 'try') { state.items = structuredClone(SAMPLE_ITEMS); commit(); toast('Loaded sample gear. Try the Quick Planner!', 'ok'); }
     }),
@@ -882,6 +1078,10 @@ function onClick(e) {
   if (!t) return;
   const d = t.dataset;
 
+  if (t.id === 'wbStatus' && pendingCloud) {
+    cloud.signIn().then(() => cloudOpen(pendingCloud)).catch(err => toast(err.message, 'bad', 8000));
+    return;
+  }
   if (t.id === 'wbStatus' && pendingHandle) {
     excel.reconnect(pendingHandle).then(loadWorkbookData).catch(err => toast(err.message, 'bad'));
     return;
@@ -894,10 +1094,16 @@ function onClick(e) {
     commit({ dirty: false, render: false }); $('#tripPreview').innerHTML = tripPreview(); return;
   }
   if (d.step) {
-    const r = state.plan.request; setRequest(d.step, Math.max(1, Math.min(99, r[d.step] + num(d.d))));
+    const r = state.plan.request; setRequest(d.step, Math.max(1, Math.min(d.step === 'days' ? 999 : 99, r[d.step] + num(d.d))));
     return render();
   }
   if (d.transport) { setRequest('transport', d.transport); return render(); }
+  if (d.days) { setRequest('days', +d.days); return render(); }
+  if (d.delAct) {
+    settings.customActivities = (settings.customActivities || []).filter(a => a !== d.delAct); saveSettings();
+    state.plan.request.activities = state.plan.request.activities.filter(a => a !== d.delAct);
+    return commit({ dirty: false });
+  }
   if (d.shelfAdd) { addToPlan(d.shelfAdd); return commit({ dirty: false }); }
   if (d.tile) {
     const el = t.closest('.tile'); const id = el.dataset.item, from = el.dataset.from === 'loose' ? null : el.dataset.from;
@@ -921,7 +1127,7 @@ function onClick(e) {
   }
   if (d.missing !== undefined) {
     const m = state.plan.ai.suggestion.missing[+d.missing];
-    return itemModal(null, { name: m.name, weightKg: num(m.estWeightKg), notes: m.reason || '', category: 'Other' });
+    return startIntake(`Add: ${m.name}${m.estWeightKg ? ` (about ${m.estWeightKg} kg)` : ''}. ${m.reason || ''}`.trim());
   }
   if (d.loadTrip || d.dupTrip) {
     const tr = state.trips.find(x => x.id === (d.loadTrip || d.dupTrip));
@@ -970,6 +1176,7 @@ function onClick(e) {
     case 'ai-analyze': return aiAnalyze();
     case 'ai-apply': return aiApply();
     case 'new-item': return itemModal(null);
+    case 'ai-intake': return startIntake();
     case 'ai-save': case 'ai-test': {
       settings.ai.keys ||= {};
       if (isLocal()) {
@@ -997,10 +1204,24 @@ function onClick(e) {
         .catch(err => { out.textContent = `❌ ${err.message}`; });
       return;
     }
-    case 'wb-open': return wbOpen();
+    case 'cloud-save-id': {
+      const id = $('#cloudClientId').value.trim();
+      if (id && !/^[0-9a-f-]{36}$/i.test(id)) return toast('That doesn\'t look like a Client ID (it should be a GUID like 1234abcd-…).', 'warn', 6000);
+      cloud.cloudSettings().clientId = id; saveSettings(); cloud.resetClient();
+      toast(id ? 'Client ID saved. Now sign in with Microsoft.' : 'Client ID cleared', 'ok'); return render();
+    }
+    case 'cloud-signin': return cloud.signIn().then(a => { toast(`Signed in as ${a.username}`, 'ok'); render(); }).catch(err => toast(`Microsoft sign-in failed: ${err.message}`, 'bad', 8000));
+    case 'cloud-browse': return cloudBrowse();
+    case 'cloud-link': return cloudOpenLink();
+    case 'cloud-new': return cloudNew();
+    case 'cloud-signout': return cloud.signOut().then(() => {
+      if (state.workbook.cloud) { excel.disconnect(); Object.assign(state.workbook, { connected: false, cloud: false }); }
+      pendingCloud = null; commit({ dirty: false }); toast('Signed out of Microsoft');
+    }).catch(err => toast(err.message, 'bad'));
+    case 'wb-open': return wbOpenChooser();
     case 'wb-new': return wbNew();
     case 'wb-save': return wbSave();
-    case 'wb-disconnect': excel.disconnect(); Object.assign(state.workbook, { connected: false }); return commit({ dirty: false });
+    case 'wb-disconnect': excel.disconnect(); pendingCloud = null; Object.assign(state.workbook, { connected: false, cloud: false }); return commit({ dirty: false });
     case 'load-sample': {
       const ids = new Set(state.items.map(i => i.id));
       const add = SAMPLE_ITEMS.filter(i => !ids.has(i.id));
@@ -1017,12 +1238,13 @@ function onInput(e) {
   const key = el.dataset.req;
   if (!key) return;
   let v = el.value;
-  if (['days', 'maxVolumeL'].includes(key)) v = num(v);
+  if (['days', 'maxVolumeL', 'resupplyDays'].includes(key)) v = Math.max(0, num(v));
+  if (key === 'days') v = Math.max(1, Math.min(999, Math.round(v) || 1));
   if (key === 'maxWeightKg') v = weightFromDisplay(v, U());
-  if (key === 'days') $('#daysOut').textContent = v;
   state.plan.request[key] = v;
   commit({ dirty: false, render: false });
   $('#tripPreview').innerHTML = tripPreview();
+  if (key === 'days' || key === 'startDate') { const e = endDate(state.plan.request); const el = $('#endDate'); if (el) el.innerHTML = e ? `Ends <b>${e}</b>` : ''; }
 }
 
 // ---------- Drag & drop ----------
@@ -1070,14 +1292,19 @@ async function boot() {
   $('#view').addEventListener('dragover', onDragOver);
   $('#view').addEventListener('drop', onDrop);
   $('#view').addEventListener('dragend', onDragEnd);
-  $('#btnOpen').onclick = wbOpen;
+  $('#btnOpen').onclick = () => (cloud.cloudConfigured() ? wbOpenChooser() : wbOpen());
   $('#btnNew').onclick = wbNew;
   $('#btnSave').onclick = () => wbSave();
   document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); wbSave(); } });
   window.addEventListener('beforeunload', e => { if (state.workbook.dirty && state.workbook.connected) { e.preventDefault(); e.returnValue = ''; } });
 
   if (typeof XLSX === 'undefined') toast('Excel library failed to load. Check your internet connection.', 'bad', 10000);
-  pendingHandle = await excel.storedHandle();
+  const lastCloud = cloud.cloudSettings().last;
+  if (lastCloud && cloud.cloudConfigured()) {
+    pendingCloud = lastCloud;
+    cloud.currentAccount().then(a => { if (a) cloudOpen(lastCloud); else render(); });
+  }
+  pendingHandle = lastCloud ? null : await excel.storedHandle();
   if (pendingHandle && (await pendingHandle.queryPermission?.({ mode: 'readwrite' })) === 'granted') {
     try { loadWorkbookData(await excel.reconnect(pendingHandle)); } catch { /* user can click to reconnect */ }
   }

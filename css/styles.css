@@ -433,3 +433,45 @@ details summary { cursor: pointer; font-weight: 800; margin-top: .8rem; }
 .cache-flag { color: var(--good); font-weight: 900; }
 .ai-progress { margin: .5rem 0; }
 .ai-progress span { display: block; margin-top: .3rem; overflow-wrap: anywhere; }
+
+/* ---------- Planner: days, activities ---------- */
+.days-in { width: 4.5rem; text-align: center; font-family: var(--display); font-weight: 900; font-size: 1.15rem; padding: .25rem; border: none; background: transparent; -moz-appearance: textfield; }
+.days-in::-webkit-outer-spin-button, .days-in::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.days-in:focus { box-shadow: none; }
+.day-presets { gap: .35rem; margin: .7rem 0 .2rem; }
+.mini-chip { padding: .2rem .65rem; font-size: .8rem; }
+.resupply { margin-top: .6rem; }
+.act-group { display: grid; grid-template-columns: 150px 1fr; gap: .6rem; align-items: start; margin-bottom: .2rem; }
+.act-label { font-weight: 900; font-size: .78rem; text-transform: uppercase; letter-spacing: .07em; color: var(--cliff); padding-top: .55rem; }
+.chip-wrap { display: inline-flex; align-items: center; }
+.chip-x { border: none; background: none; color: var(--muted); cursor: pointer; font-size: .75rem; margin-left: -.3rem; padding: .2rem; }
+.chip-x:hover { color: var(--bad); }
+.add-act { display: inline-flex; gap: .3rem; align-items: center; }
+.add-act input { width: 260px; padding: .35rem .7rem; border-radius: 999px; }
+@media (max-width: 700px) { .act-group { grid-template-columns: 1fr; gap: .1rem; } .act-label { padding-top: .3rem; } .add-act input { width: 100%; } .add-act { width: 100%; } }
+
+.note-box { margin-top: .8rem; padding: .8rem 1rem; border-radius: 14px; border: 2px dashed var(--teal); background: color-mix(in srgb, var(--seaglass) 18%, var(--card)); font-size: .88rem; line-height: 1.5; }
+
+/* ---------- AI intake ---------- */
+.intake-chat { max-height: 260px; overflow: auto; margin-bottom: .6rem; }
+.questions { background: color-mix(in srgb, var(--gold) 16%, var(--card)); border: 2px solid var(--ink); box-shadow: 0 3px 0 var(--ink); border-radius: 14px; padding: .7rem 1rem; margin: .4rem 0 .8rem; font-size: .92rem; }
+.questions ol { margin: .4rem 0 0; padding-left: 1.2rem; }
+.intake-form { display: grid; gap: .5rem; }
+.draft-h { margin: 1.1rem 0 .4rem; }
+.draft-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.draft-table th { text-align: left; font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding: .3rem; }
+.draft-table td { border-top: 1px dashed var(--line); padding: .35rem .3rem; vertical-align: top; }
+.draft-table input, .draft-table select { padding: .3rem .45rem; font-size: .85rem; border-radius: 8px; }
+.draft-table input[data-f=weight], .draft-table input[data-f=qtyOwned] { width: 5.5rem; }
+.draft-table select { min-width: 8.5rem; }
+.d-icon { font-size: 1.5rem; }
+.shelf .card-head .btn { margin-left: auto; }
+
+/* ---------- Excel Online ---------- */
+.cloud-list { display: grid; gap: .4rem; margin-top: .8rem; max-height: 50vh; overflow: auto; }
+.cloud-file { display: grid; grid-template-columns: 28px 1fr; gap: 0 .5rem; text-align: left; padding: .6rem .8rem; border: 2px solid var(--line); border-radius: 12px; background: var(--card); cursor: pointer; }
+.cloud-file:hover { border-color: var(--ink); box-shadow: 0 3px 0 var(--ink); }
+.cloud-file span { grid-row: span 2; font-size: 1.4rem; }
+.cloud-acct { display: flex; flex-direction: column; gap: .3rem; justify-content: flex-end; }
+.setup-steps li { margin: .35rem 0; line-height: 1.5; }
+code.copy { user-select: all; display: inline-block; margin-top: .2rem; }

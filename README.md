@@ -1,4 +1,4 @@
-# 🏝️🏺 FieldPack: island archaeology trip planner
+# 🏺 FieldPack: archaeology trip planner
 
 A web app for planning archaeological field trips (survey, testing, excavation, monitoring), with a soft spot for the California Channel Islands. It uses **your Excel workbook as the database** of gear (supplies, containers, clothing, tools and so on) and connects to **the AI of your choice** for detailed trip analysis.
 
@@ -12,13 +12,14 @@ The look is inspired by the California Channel Islands: deep channel blues, kelp
 
 | | |
 |---|---|
-| 🗺️ **Quick Planner** | Pick dates, party size, terrain, activities, transport (with weight and volume presets), must-haves and notes. A live trip card previews the plan. |
+| 🗺️ **Quick Planner** | Pick dates and any trip length (quick picks up to a 3-month field season, with a calculated end date and an optional resupply interval), crew size, terrain, archaeology/research activities (add your own),  transport (with weight and volume presets), must-haves and notes. A live trip card previews the plan. |
 | ⚡ **Auto-pack** | A local engine scores every item against the trip and computes quantities (per person, per person per day for consumables). It trims to your weight and volume limits, chooses containers, then bin-packs items into them. |
 | 🎒 **Pack Board** | A visual load-out. Bags fill up as you pack. Drag gear from the shelf into containers, and use the weight, container-fill and transport-volume gauges, the weight-by-category bar, and the over-limit and over-owned warnings. |
 | 🤖 **AI analyst** | Sends the trip brief, your full inventory and the current board to Claude, OpenAI, Gemini, or any OpenAI-compatible endpoint (Ollama, LM Studio, OpenRouter…). You get back a Markdown plan with a packing table, a weight check, risks and gaps, and consumables. You can apply its machine-readable packing list to the board in one click, add its suggested missing items to inventory, and ask follow-up questions. |
+| 🤖 **Add gear with AI** | Describe gear in plain words ("two 1/8 inch screens and 500 artifact bags"). The AI drafts complete records, estimating typical weights and sizes, and asks short follow-up questions when something that matters (quantity, model/size, container capacity) is unclear. Review and edit the draft, then add it in one click. |
 | 🧾 **Inventory** | Card grid with search, category filters and sort. Quick-add bar, plus a detailed editor with an emoji picker, dimensions, container capacity and max load, per-person and consumable rules, and use-case and environment tags. |
 | 📜 **History** | Every saved trip goes to the workbook's **Trips** sheet, with its requirements, totals, packing list and AI analysis. You can reopen, duplicate or change the status (planned → packed → in field → completed). |
-| 📗 **Excel sync** | In Chrome or Edge the app reads and **writes back into the same .xlsx file** (File System Access API), with optional auto-save. Other browsers download an updated copy. Other sheets in your workbook are left alone. |
+| 📗 **Excel sync** | **Local file:** in Chrome or Edge the app reads and **writes back into the same .xlsx file** (File System Access API), with optional auto-save; other browsers download an updated copy. **Excel Online:** open and save workbooks in **OneDrive or SharePoint/Teams** after signing in with Microsoft (browse recent workbooks, open from a share link, or create one in OneDrive). Saves are conflict-safe: if a teammate changed the file in Excel Online meanwhile, you're asked before anything is overwritten. Other sheets in your workbook are always left alone. |
 
 ## Run it
 
@@ -66,12 +67,39 @@ Configure under **Settings → AI connection**. Cloud API keys are kept in the b
 | Provider | Default model | Notes |
 |---|---|---|
 | Free built-in (WebLLM) | `Qwen2.5-3B-Instruct-q4f16_1-MLC` | Runs locally in the browser (WebGPU); 8K context, so FieldPack sends a compact brief with only the relevant inventory. |
+| Free cloud models (OpenRouter) | `google/gemma-4-31b-it:free` | Free open-weight models (Gemma, Nemotron and others) with a free OpenRouter key, no credit card. The model list is loaded live. Daily limits apply, and free providers may log prompts, so keep confidential site details out of trip notes. |
 | Anthropic Claude | `claude-opus-5-5` | Called directly from the browser (`anthropic-dangerous-direct-browser-access`). On current models, server-side refusal fallback is enabled. |
 | OpenAI | `gpt-4o` | Any chat-completions model. |
 | Google Gemini | `gemini-2.5-flash` | `generateContent` API. |
 | OpenAI-compatible | `llama3.1` | Set a base URL, e.g. `http://localhost:11434/v1` for Ollama (start it with `OLLAMA_ORIGINS=*`). |
 
+> **Why not OpenCode Zen's "Big Pickle"?** As of November 2026 its free models only work inside OpenCode's own apps, and its API doesn't allow calls from web pages, so a browser app can't use it. OpenRouter's free models are the closest web-friendly equivalent.
+
 > Because calls run in the browser, anyone using this machine's browser profile can use the stored key. Use a key with a spending limit, or a local model.
+
+## Excel Online setup (OneDrive / SharePoint)
+
+Excel Online access uses Microsoft sign-in, which needs a free app registration (one time, about 5 minutes):
+
+1. Open [Microsoft Entra → App registrations](https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade) → **New registration**, name it *FieldPack*.
+2. Supported account types: **Accounts in any organizational directory and personal Microsoft accounts** (or your organization only).
+3. Redirect URI: platform **Single-page application (SPA)**, value `<your FieldPack address>/auth-redirect.html`, e.g. `http://localhost:8080/auth-redirect.html` and/or `https://<you>.github.io/Field-Planner-App/auth-redirect.html`. Add one per address you use.
+4. Copy the **Application (client) ID**. Either paste it in **Settings → Excel Online**, or put it in `js/config.js` (`msClientId`) so everyone using your published site can just sign in.
+5. API permissions: Microsoft Graph delegated **User.Read** and **Files.ReadWrite.All** (a work tenant admin may need to grant consent).
+
+## Publish it as a web app (GitHub Pages)
+
+FieldPack is a static site, so GitHub Pages can host it for free with no server:
+
+1. In this repo on GitHub: **Settings → Pages**.
+2. *Build and deployment* → Source: **Deploy from a branch**; Branch: **main**, folder **/ (root)** → **Save**.
+3. After a minute it's live at **https://gareto986.github.io/Field-Planner-App/** (shown at the top of the Pages settings). Every push to `main` redeploys automatically.
+
+Notes for a public site:
+- Each visitor's data stays in **their own browser and their own Excel file**; nothing is shared between visitors and there's no server to run.
+- AI works out of the box with the free built-in model (Chrome/Edge with WebGPU). Visitors can also connect their own cloud AI in Settings.
+- For Excel Online, add `https://gareto986.github.io/Field-Planner-App/auth-redirect.html` as an SPA redirect URI in your app registration and set `msClientId` in `js/config.js`.
+- Optional: use your own domain under **Settings → Pages → Custom domain**.
 
 ## Project structure
 
@@ -86,13 +114,16 @@ js/planner.js         auto-pack engine, bin packing, plan statistics
 js/excel.js           SheetJS read/write, file handles, column mapping
 js/ai.js              provider adapters, trip-brief prompt, JSON plan parsing
 js/local-ai.js        free in-browser AI (WebLLM / WebGPU)
+js/intake.js          "Add gear with AI" (drafts items, asks follow-up questions)
+js/onedrive.js        Excel Online: Microsoft sign-in (MSAL) + Microsoft Graph file access
+js/config.js          site-wide settings for a published copy (Microsoft Client ID)
+auth-redirect.html    Microsoft sign-in redirect page
 js/sample-data.js     seed inventory
 sample/               sample workbook
 ```
 
 ## Ideas for next steps
 
-- Excel Online / OneDrive sync via Microsoft Graph
 - Weather forecast lookup for the destination and dates
 - Printable packing checklist per person
 - Trip debriefs: log what was used or unused to improve future suggestions
