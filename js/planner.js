@@ -1,7 +1,7 @@
 // Local (non-AI) planning engine: quantities, relevance scoring,
 // container selection, bin packing and plan statistics.
-import { state, itemById, TRANSPORT } from './store.js?v=202611012351';
-import { uid, splitList } from './utils.js?v=202611012351';
+import { state, itemById, TRANSPORT } from './store.js?v=202611030056';
+import { uid, splitList } from './utils.js?v=202611030056';
 
 export const itemVolume = it => {
   if (!it) return 0;
@@ -70,11 +70,12 @@ export function autoPack(req) {
   const gearBudget = maxKg * 0.8;
   const volBudget = (req.maxVolumeL || Infinity) * 0.85;
   const vol = p => isWorn(p.it) ? 0 : itemVolume(p.it) * p.qty;
-  let total = picks.reduce((s, p) => s + p.it.weightKg * p.qty, 0);
+  const budgetKg = p => (req.countLoose === false && isWorn(p.it) ? 0 : p.it.weightKg * p.qty);
+  let total = picks.reduce((s, p) => s + budgetKg(p), 0);
   let totalL = picks.reduce((s, p) => s + vol(p), 0);
   for (let i = picks.length - 1; i >= 0 && (total > gearBudget || totalL > volBudget); i--) {
     if (picks[i].score >= 100) continue;
-    total -= picks[i].it.weightKg * picks[i].qty;
+    total -= budgetKg(picks[i]);
     totalL -= vol(picks[i]);
     picks.splice(i, 1);
   }
@@ -159,7 +160,7 @@ export function planStats(plan = state.plan) {
     const it = itemById(c.itemId);
     perContainer[c.uid] = { cap: it?.capacityL || 0, load: it?.maxLoadKg || 0, usedL: 0, usedKg: 0, selfKg: it?.weightKg || 0 };
   });
-  let gearKg = 0, gearL = 0, looseL = 0, count = 0;
+  let gearKg = 0, gearL = 0, looseL = 0, looseKg = 0, count = 0;
   const owned = {};
   plan.packed.forEach(p => {
     const it = itemById(p.itemId);
@@ -169,7 +170,7 @@ export function planStats(plan = state.plan) {
     owned[it.id] = (owned[it.id] || 0) + p.qty;
     byCat[it.category] = (byCat[it.category] || 0) + kg;
     const pc = perContainer[p.container];
-    if (pc) { pc.usedL += l; pc.usedKg += kg; } else if (!isWorn(it)) looseL += l;
+    if (pc) { pc.usedL += l; pc.usedKg += kg; } else { looseKg += kg; if (!isWorn(it)) looseL += l; }
   });
   const containerKg = plan.containers.reduce((s, c) => s + (itemById(c.itemId)?.weightKg || 0), 0);
   if (containerKg) byCat.Container = (byCat.Container || 0) + containerKg;
@@ -185,11 +186,15 @@ export function planStats(plan = state.plan) {
     return pc.usedL > pc.cap + 1e-6 || (pc.load && pc.usedKg > pc.load + 1e-6);
   }).map(c => c.uid);
   const totalKg = gearKg + containerKg;
+  // Trip setting: worn / carried-loose items may be excluded from the weight limit
+  // (e.g. a baggage allowance that only counts checked/packed bags).
+  const countLoose = req.countLoose !== false;
+  const countedKg = countLoose ? totalKg : totalKg - looseKg;
   const transportL = capacityL + looseL;
   return {
-    totalKg, gearKg, containerKg, gearL, capacityL, looseL, transportL, count, byCat, perContainer, shortages, overfull,
-    kgPerPerson: totalKg / Math.max(1, req.people || 1),
-    weightPct: req.maxWeightKg ? totalKg / req.maxWeightKg : 0,
+    totalKg, gearKg, containerKg, gearL, capacityL, looseL, looseKg, countLoose, countedKg, transportL, count, byCat, perContainer, shortages, overfull,
+    kgPerPerson: countedKg / Math.max(1, req.people || 1),
+    weightPct: req.maxWeightKg ? countedKg / req.maxWeightKg : 0,
     spacePct: capacityL ? Object.values(perContainer).reduce((t, c) => t + c.usedL, 0) / capacityL : 0,
     transportPct: req.maxVolumeL ? transportL / req.maxVolumeL : 0,
   };

@@ -2,9 +2,9 @@
 // "Items" and "Trips" sheets; any other sheets in the file are preserved.
 // Uses the File System Access API (Chrome/Edge) to save back into the same
 // file, with a download fallback for other browsers.
-import { settings } from './store.js?v=202611012351';
-import { num, round, splitList, KG_PER_LB, CM_PER_IN, IN3_PER_L, L_PER_FT3 } from './utils.js?v=202611012351';
-import * as cloudApi from './onedrive.js?v=202611012351';
+import { settings } from './store.js?v=202611030056';
+import { num, round, splitList, KG_PER_LB, CM_PER_IN, IN3_PER_L, L_PER_FT3 } from './utils.js?v=202611030056';
+import * as cloudApi from './onedrive.js?v=202611030056';
 
 export const ITEM_COLS = [
   ['id', 'ID'], ['name', 'Name'], ['category', 'Category'], ['icon', 'Icon'],
@@ -21,12 +21,14 @@ export const TRIP_COLS = [
   ['mustHaves', 'Must-Haves'], ['notes', 'Requirements / Notes'], ['totalWeightKg', 'Total Weight (kg)', 'w'],
   ['totalVolumeL', 'Total Volume (L)', 'V'], ['packingSummary', 'Packing Summary'], ['packingList', 'Packing List (JSON)'],
   ['aiProvider', 'AI Provider'], ['aiModel', 'AI Model'], ['aiAnalysis', 'AI Analysis'],
+  // newer columns go at the end so existing column positions never shift
+  ['countLoose', 'Worn/Loose Counts Toward Limit'],
 ];
 
 const NUMERIC = new Set(['weightKg', 'lengthCm', 'widthCm', 'heightCm', 'volumeL', 'qtyOwned', 'perPersonDay', 'capacityL', 'maxLoadKg',
   'days', 'people', 'maxWeightKg', 'maxVolumeL', 'totalWeightKg', 'totalVolumeL']);
 const LISTS = new Set(['useCases', 'environments', 'activities']);
-const BOOLS = new Set(['perPerson', 'consumable']);
+const BOOLS = new Set(['perPerson', 'consumable', 'countLoose']);
 const MAX_CELL = 32000; // Excel's hard limit is 32,767 chars per cell
 
 const norm = s => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -78,7 +80,7 @@ function readSheet(ws, cols) {
       let v = r[i];
       if (NUMERIC.has(m.key)) v = num(v) * m.factor;
       else if (LISTS.has(m.key)) v = splitList(v);
-      else if (BOOLS.has(m.key)) v = toBool(v);
+      else if (BOOLS.has(m.key)) { if (String(v ?? '').trim() === '') return; v = toBool(v); }
       else if (v instanceof Date) v = v.toISOString().slice(0, 10);
       else v = String(v ?? '').trim();
       o[m.key] = v;
@@ -124,6 +126,7 @@ export function parseWorkbook(wb) {
   const items = readSheet(wb.Sheets[itemsName], ITEM_COLS).filter(i => i.name);
   const trips = readSheet(wb.Sheets[find('Trips') || find('History')], TRIP_COLS).filter(t => t.id).map(t => {
     try { t.packingList = t.packingList ? JSON.parse(t.packingList) : null; } catch { t.packingList = null; }
+    t.countLoose = t.countLoose !== false; // trips saved before this setting existed counted everything
     return t;
   });
   return { items, trips };

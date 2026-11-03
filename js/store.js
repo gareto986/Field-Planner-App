@@ -1,6 +1,6 @@
 // Central app state + browser persistence. The Excel workbook is the
 // system of record; localStorage is a crash-safe working copy.
-import { uid } from './utils.js?v=202611012351';
+import { uid } from './utils.js?v=202611030056';
 
 export const CATEGORIES = {
   Archaeology: { icon: '🏺', color: '#b4532a' },  // terracotta
@@ -50,6 +50,7 @@ export const defaultRequest = () => ({
   name: '', destination: '', startDate: '', days: 5, people: 4,
   environments: ['island'], activities: ['survey', 'excavation', 'camping', 'overnight'], transport: 'ferry',
   maxWeightKg: 100, maxVolumeL: 480, mustHaves: '', notes: '', resupplyDays: 0,
+  countLoose: true, // do worn / carried-loose items count toward the weight limit?
 });
 
 export const emptyPlan = () => ({

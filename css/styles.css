@@ -513,3 +513,14 @@ code.copy { user-select: all; display: inline-block; margin-top: .2rem; }
 .tried summary { cursor: pointer; font-weight: 800; margin: 0; }
 .tried div { color: var(--muted); overflow-wrap: anywhere; }
 #specCard .check { align-items: flex-start; }
+
+/* ---------- Worn / loose weight toggle ---------- */
+.loose-check { margin-top: .4rem; }
+.loose-toggle { display: inline-flex; flex-direction: row; align-items: center; gap: .45rem; margin: .4rem 0 .2rem; font-size: .78rem; font-weight: 800; cursor: pointer; }
+.loose-toggle input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.loose-toggle .switch { width: 34px; height: 20px; border-radius: 999px; background: var(--line); border: 2px solid var(--ink); position: relative; transition: background .15s; flex: none; }
+.loose-toggle .switch::after { content: ''; position: absolute; top: 1px; left: 1px; width: 14px; height: 14px; border-radius: 50%; background: var(--card); border: 1.5px solid var(--ink); transition: transform .15s; }
+.loose-toggle input:checked + .switch { background: var(--kelp); }
+.loose-toggle input:checked + .switch::after { transform: translateX(14px); }
+.loose-toggle input:focus-visible + .switch { box-shadow: 0 0 0 3px color-mix(in srgb, var(--teal) 40%, transparent); }
+.g-sub br + * { display: inline; }

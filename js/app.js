@@ -1,18 +1,18 @@
 import { state, settings, commit, persist, saveSettings, restore, subscribe, CATEGORIES, catInfo, ENVIRONMENTS, ACTIVITIES, ACTIVITY_GROUPS,
-  TRANSPORT, emptyPlan, defaultRequest, itemById, nextItemId } from './store.js?v=202611012351';
+  TRANSPORT, emptyPlan, defaultRequest, itemById, nextItemId } from './store.js?v=202611030056';
 import { $, $$, esc, uid, num, round, fmtWeight, fmtVolume, fmtVolSmall, fmtVolPair, weightToDisplay, weightFromDisplay, weightUnit,
   lenToDisplay, lenFromDisplay, lenUnit, volSmallToDisplay, volSmallFromDisplay, volSmallUnit, volBigToDisplay, volBigFromDisplay, volBigUnit, splitList,
-  toast, openModal, confirmDialog, markdown, debounce } from './utils.js?v=202611012351';
-import { autoPack, binPack, planStats, packingSummary, itemVolume, isContainer, isWorn, limitsFor, suggestedQty, relevance } from './planner.js?v=202611012351';
-import * as excel from './excel.js?v=202611012351';
-import * as cloud from './onedrive.js?v=202611012351';
-import { LOCAL_MODELS, hasWebGPU, gpuStatus, isModelCached, loadLocalModel, onLocalProgress, loadedModel } from './local-ai.js?v=202611012351';
-import { PROVIDERS, fetchFreeModels, fetchOvhModels, servedModel, isLocal, aiConfig, aiReady, chat, testConnection, systemPrompt, buildTripBrief, parseSuggestion, stripJson, iconFor } from './ai.js?v=202611012351';
-import { SAMPLE_ITEMS } from './sample-data.js?v=202611012351';
-import { pickerHtml, wirePicker, suggestIcon } from './emoji.js?v=202611012351';
-import { CONFIG } from './config.js?v=202611012351';
-import { SEARCH_PROVIDERS, searchWeb } from './websearch.js?v=202611012351';
-import { openIntake } from './intake.js?v=202611012351';
+  toast, openModal, confirmDialog, markdown, debounce } from './utils.js?v=202611030056';
+import { autoPack, binPack, planStats, packingSummary, itemVolume, isContainer, isWorn, limitsFor, suggestedQty, relevance } from './planner.js?v=202611030056';
+import * as excel from './excel.js?v=202611030056';
+import * as cloud from './onedrive.js?v=202611030056';
+import { LOCAL_MODELS, hasWebGPU, gpuStatus, isModelCached, loadLocalModel, onLocalProgress, loadedModel } from './local-ai.js?v=202611030056';
+import { PROVIDERS, fetchFreeModels, fetchOvhModels, servedModel, isLocal, aiConfig, aiReady, chat, testConnection, systemPrompt, buildTripBrief, parseSuggestion, stripJson, iconFor } from './ai.js?v=202611030056';
+import { SAMPLE_ITEMS } from './sample-data.js?v=202611030056';
+import { pickerHtml, wirePicker, suggestIcon } from './emoji.js?v=202611030056';
+import { CONFIG } from './config.js?v=202611030056';
+import { SEARCH_PROVIDERS, searchWeb } from './websearch.js?v=202611030056';
+import { openIntake } from './intake.js?v=202611030056';
 
 const U = () => settings.units;
 const W = kg => fmtWeight(kg, U());
@@ -118,6 +118,8 @@ function viewPlanner() {
         <label>Max total weight (${weightUnit(U())})<input type="number" min="0" step="any" data-req="maxWeightKg" data-unit="w" value="${weightToDisplay(r.maxWeightKg, U())}"></label>
         <label>Max total volume (${volBigUnit(U())})<input type="number" min="0" step="any" data-req="maxVolumeL" value="${volBigToDisplay(r.maxVolumeL, U())}"></label>
       </div>
+      <label class="check loose-check"><input type="checkbox" data-req="countLoose" ${r.countLoose !== false ? 'checked' : ''}>
+        Worn / carried-loose items count toward the weight limit <small class="muted">(turn off if the limit only covers packed bags, e.g. a baggage allowance)</small></label>
       <p class="muted small">${lim ? `Preset for ${r.people} ${r.people > 1 ? 'people' : 'person'}: ${W(lim.kg)} / ${V(lim.l)}. Edit to override.` : 'Custom limits.'}</p>
       <div class="step"><span class="step-n">5</span><h3>Requirements</h3></div>
       <div class="grid2">
@@ -196,7 +198,7 @@ function tripPreview() {
     </div>
     <div class="tagline">${r.environments.map(e => `<span class="tag">${ENV_ICONS[e] || ''} ${esc(e)}</span>`).join('')}${r.activities.map(a => `<span class="tag alt">${ACT_ICONS[a] || '🏷️'} ${esc(a)}</span>`).join('')}</div>
     <hr>
-    <p class="small"><b>Current load-out:</b> ${s.count} items · ${state.plan.containers.length} containers · ${W(s.totalKg)}
+    <p class="small"><b>Current load-out:</b> ${s.count} items · ${state.plan.containers.length} containers · ${W(s.totalKg)}${!s.countLoose && s.looseKg ? ` (${W(s.countedKg)} counted)` : ''}
       ${r.maxWeightKg ? `(${Math.round(s.weightPct * 100)}% of cap)` : ''}</p>
     ${miniBar(s.weightPct)}
     ${strata()}
@@ -278,7 +280,7 @@ function viewBoard() {
   shelfItems.forEach(i => (groups[i.category] ||= []).push(i));
   const loose = plan.packed.filter(p => !p.container || !plan.containers.some(c => c.uid === p.container));
   const warnings = [];
-  if (s.weightPct > 1) warnings.push(`Over the weight cap by ${W(s.totalKg - r.maxWeightKg)}.`);
+  if (s.weightPct > 1) warnings.push(`Over the weight cap by ${W(s.countedKg - r.maxWeightKg)}${s.countLoose ? '' : ' (not counting worn / loose items)'}.`);
   if (r.maxVolumeL && s.transportPct > 1) warnings.push(`Over the volume cap by ${V(s.transportL - r.maxVolumeL)}.`);
   s.overfull.forEach(u => { const c = plan.containers.find(x => x.uid === u); warnings.push(`${itemById(c.itemId)?.name} is overfilled.`); });
   s.shortages.forEach(x => warnings.push(`Using ${x.q}× ${itemById(x.id)?.name} but you own ${x.have}.`));
@@ -299,7 +301,7 @@ function viewBoard() {
       </div>
     </div>
     <div class="gauges">
-      ${gauge('Weight', s.weightPct, W(s.totalKg), `of ${W(r.maxWeightKg)} · ${W(s.kgPerPerson)}/person`)}
+      ${gauge('Weight', s.weightPct, W(s.countedKg), `of ${W(r.maxWeightKg)} · ${W(s.kgPerPerson)}/person${!s.countLoose && s.looseKg ? `<br>+ ${W(s.looseKg)} worn/loose not counted` : ''}`)}
       ${gauge('Container fill', s.spacePct, V(s.spacePct * s.capacityL), `of ${V(s.capacityL)} capacity`)}
       ${gauge('Transport volume', s.transportPct, V(s.transportL), `of ${V(r.maxVolumeL)} allowed`)}
     </div>
@@ -336,7 +338,10 @@ function viewBoard() {
       <div class="containers">
         ${plan.containers.map(c => containerCard(c, s)).join('')}
         <div class="container loose-zone" data-drop="loose">
-          <div class="c-head"><span class="c-icon">🧍</span><div><b>Worn / carried loose</b><small class="muted">Boots, jackets, hand-carry items</small></div></div>
+          <div class="c-head"><span class="c-icon">🧍</span><div><b>Worn / carried loose</b><small class="muted">Boots, jackets, hand-carry items${s.looseKg ? ` · ${W(s.looseKg)}` : ''}</small></div></div>
+          <label class="loose-toggle" title="Whether these items count toward the trip's weight limit">
+            <input type="checkbox" data-loose-toggle ${s.countLoose ? 'checked' : ''}><span class="switch"></span>
+            <span>${s.countLoose ? 'Counts toward weight limit' : 'Not counted toward weight limit'}</span></label>
           <div class="c-body">${loose.map(tile).join('') || '<p class="muted small drop-hint">Drop items here</p>'}</div>
         </div>
       </div>
@@ -777,7 +782,7 @@ function tripRecord() {
     id: p.id, created: prev?.created || new Date().toISOString(), status: prev?.status || 'planned',
     name: r.name, destination: r.destination, startDate: r.startDate, days: r.days, people: r.people,
     environments: r.environments, activities: r.activities, transport: r.transport,
-    maxWeightKg: round(r.maxWeightKg, 2), maxVolumeL: round(r.maxVolumeL, 1), mustHaves: r.mustHaves, notes: r.notes,
+    maxWeightKg: round(r.maxWeightKg, 2), maxVolumeL: round(r.maxVolumeL, 1), countLoose: r.countLoose !== false, mustHaves: r.mustHaves, notes: r.notes,
     totalWeightKg: round(s.totalKg, 2), totalVolumeL: round(s.transportL, 1),
     packingSummary: packingSummary(p),
     packingList: { containers: p.containers, packed: p.packed },
@@ -790,7 +795,7 @@ function planFromTrip(t, asNew = false) {
   if (!asNew) plan.id = t.id;
   plan.request = { ...defaultRequest(), name: asNew ? `${t.name} (copy)` : t.name, destination: t.destination, startDate: asNew ? '' : t.startDate,
     days: t.days || 1, people: t.people || 1, environments: t.environments || [], activities: t.activities || [], transport: t.transport || 'custom',
-    maxWeightKg: t.maxWeightKg || 0, maxVolumeL: t.maxVolumeL || 0, mustHaves: t.mustHaves || '', notes: t.notes || '' };
+    maxWeightKg: t.maxWeightKg || 0, maxVolumeL: t.maxVolumeL || 0, countLoose: t.countLoose !== false, mustHaves: t.mustHaves || '', notes: t.notes || '' };
   plan.containers = t.packingList?.containers || [];
   plan.packed = t.packingList?.packed || [];
   if (t.aiAnalysis && !asNew) {
@@ -1340,7 +1345,7 @@ function onInput(e) {
   const el = e.target;
   const key = el.dataset.req;
   if (!key) return;
-  let v = el.value;
+  let v = el.type === 'checkbox' ? el.checked : el.value;
   if (['days', 'maxVolumeL', 'resupplyDays'].includes(key)) v = Math.max(0, num(v));
   if (key === 'days') v = Math.max(1, Math.min(999, Math.round(v) || 1));
   if (key === 'maxWeightKg') v = weightFromDisplay(v, U());
@@ -1393,6 +1398,12 @@ async function boot() {
   subscribe(autosave);
   document.addEventListener('click', onClick);
   $('#view').addEventListener('input', onInput);
+  $('#view').addEventListener('change', e => {
+    if (!e.target.matches('[data-loose-toggle]')) return;
+    state.plan.request.countLoose = e.target.checked;
+    commit({ dirty: false });
+    toast(e.target.checked ? 'Worn / loose items now count toward the weight limit' : 'Worn / loose items no longer count toward the weight limit', 'ok');
+  });
   $('#view').addEventListener('dragstart', onDragStart);
   $('#view').addEventListener('dragover', onDragOver);
   $('#view').addEventListener('drop', onDrop);

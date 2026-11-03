@@ -1,9 +1,9 @@
 // Bring-your-own-AI connector. Calls the provider straight from the browser
 // with the user's own key (stored only in this browser's localStorage).
-import { state, settings, itemById, catInfo } from './store.js?v=202611012351';
-import { itemVolume, planStats, packingSummary, relevance } from './planner.js?v=202611012351';
-import { round, fmtWeight, fmtVolume, fmtVolSmall, weightToDisplay, volSmallToDisplay, weightUnit, volSmallUnit } from './utils.js?v=202611012351';
-import { DEFAULT_LOCAL_MODEL, hasWebGPU, localChat, isLowMemory } from './local-ai.js?v=202611012351';
+import { state, settings, itemById, catInfo } from './store.js?v=202611030056';
+import { itemVolume, planStats, packingSummary, relevance } from './planner.js?v=202611030056';
+import { round, fmtWeight, fmtVolume, fmtVolSmall, weightToDisplay, volSmallToDisplay, weightUnit, volSmallUnit } from './utils.js?v=202611030056';
+import { DEFAULT_LOCAL_MODEL, hasWebGPU, localChat, isLowMemory } from './local-ai.js?v=202611030056';
 
 const OVH_BASE = 'https://oai.endpoints.kepler.ai.cloud.ovh.net/v1';
 const OVH_FALLBACKS = ['gpt-oss-120b', 'Meta-Llama-3_3-70B-Instruct', 'Qwen3.6-27B', 'Mistral-Small-3.2-24B-Instruct-2506', 'gpt-oss-20b'];
@@ -250,7 +250,7 @@ export function buildTripBrief(plan = state.plan, { compact = false } = {}) {
   ].join(' | ')).join('\n');
 
   const draft = plan.packed.length || plan.containers.length
-    ? `${packingSummary(plan)}\nTotals: ${fmtWeight(s.totalKg, u)} total (${fmtWeight(s.containerKg, u)} of containers), ${fmtVolume(s.gearL, u)} of gear in ${fmtVolume(s.capacityL, u)} of container capacity.`
+    ? `${packingSummary(plan)}\nTotals: ${fmtWeight(s.totalKg, u)} total (${fmtWeight(s.containerKg, u)} of containers${s.looseKg ? `, ${fmtWeight(s.looseKg, u)} worn/loose` : ''}; ${fmtWeight(s.countedKg, u)} counts toward the limit), ${fmtVolume(s.gearL, u)} of gear in ${fmtVolume(s.capacityL, u)} of container capacity.`
     : '(no draft yet: build the plan from scratch)';
 
   return `## Trip request
@@ -261,6 +261,7 @@ export function buildTripBrief(plan = state.plan, { compact = false } = {}) {
 - Environments: ${fmtList(r.environments)}
 - Activities: ${fmtList(r.activities)}
 - Transport: ${r.transport}; max total weight ${fmtWeight(r.maxWeightKg, u)}; max total volume ${fmtVolume(r.maxVolumeL, u)}
+- Worn / carried-loose items (container null) ${r.countLoose === false ? 'do NOT count toward the weight limit, so only packed containers and their contents count' : 'count toward the weight limit like everything else'}
 - Must-haves: ${r.mustHaves || '-'}
 - Other requirements / notes: ${r.notes || '-'}
 
