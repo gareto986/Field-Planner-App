@@ -1,18 +1,18 @@
 import { state, settings, commit, persist, saveSettings, restore, subscribe, CATEGORIES, catInfo, ENVIRONMENTS, ACTIVITIES, ACTIVITY_GROUPS,
-  TRANSPORT, emptyPlan, defaultRequest, itemById, nextItemId } from './store.js?v=202611030056';
+  TRANSPORT, emptyPlan, defaultRequest, itemById, nextItemId } from './store.js?v=202611030059';
 import { $, $$, esc, uid, num, round, fmtWeight, fmtVolume, fmtVolSmall, fmtVolPair, weightToDisplay, weightFromDisplay, weightUnit,
   lenToDisplay, lenFromDisplay, lenUnit, volSmallToDisplay, volSmallFromDisplay, volSmallUnit, volBigToDisplay, volBigFromDisplay, volBigUnit, splitList,
-  toast, openModal, confirmDialog, markdown, debounce } from './utils.js?v=202611030056';
-import { autoPack, binPack, planStats, packingSummary, itemVolume, isContainer, isWorn, limitsFor, suggestedQty, relevance } from './planner.js?v=202611030056';
-import * as excel from './excel.js?v=202611030056';
-import * as cloud from './onedrive.js?v=202611030056';
-import { LOCAL_MODELS, hasWebGPU, gpuStatus, isModelCached, loadLocalModel, onLocalProgress, loadedModel } from './local-ai.js?v=202611030056';
-import { PROVIDERS, fetchFreeModels, fetchOvhModels, servedModel, isLocal, aiConfig, aiReady, chat, testConnection, systemPrompt, buildTripBrief, parseSuggestion, stripJson, iconFor } from './ai.js?v=202611030056';
-import { SAMPLE_ITEMS } from './sample-data.js?v=202611030056';
-import { pickerHtml, wirePicker, suggestIcon } from './emoji.js?v=202611030056';
-import { CONFIG } from './config.js?v=202611030056';
-import { SEARCH_PROVIDERS, searchWeb } from './websearch.js?v=202611030056';
-import { openIntake } from './intake.js?v=202611030056';
+  toast, openModal, confirmDialog, markdown, debounce } from './utils.js?v=202611030059';
+import { autoPack, binPack, planStats, packingSummary, itemVolume, isContainer, isWorn, limitsFor, suggestedQty, relevance } from './planner.js?v=202611030059';
+import * as excel from './excel.js?v=202611030059';
+import * as cloud from './onedrive.js?v=202611030059';
+import { LOCAL_MODELS, hasWebGPU, gpuStatus, isModelCached, loadLocalModel, onLocalProgress, loadedModel } from './local-ai.js?v=202611030059';
+import { PROVIDERS, fetchFreeModels, fetchOvhModels, servedModel, isLocal, aiConfig, aiReady, chat, testConnection, systemPrompt, buildTripBrief, parseSuggestion, stripJson, iconFor } from './ai.js?v=202611030059';
+import { SAMPLE_ITEMS } from './sample-data.js?v=202611030059';
+import { pickerHtml, wirePicker, suggestIcon } from './emoji.js?v=202611030059';
+import { CONFIG } from './config.js?v=202611030059';
+import { SEARCH_PROVIDERS, searchWeb } from './websearch.js?v=202611030059';
+import { openIntake } from './intake.js?v=202611030059';
 
 const U = () => settings.units;
 const W = kg => fmtWeight(kg, U());
@@ -304,6 +304,11 @@ function viewBoard() {
       ${gauge('Weight', s.weightPct, W(s.countedKg), `of ${W(r.maxWeightKg)} · ${W(s.kgPerPerson)}/person${!s.countLoose && s.looseKg ? `<br>+ ${W(s.looseKg)} worn/loose not counted` : ''}`)}
       ${gauge('Container fill', s.spacePct, V(s.spacePct * s.capacityL), `of ${V(s.capacityL)} capacity`)}
       ${gauge('Transport volume', s.transportPct, V(s.transportL), `of ${V(r.maxVolumeL)} allowed`)}
+    </div>
+    <div class="loose-row">
+      <label class="loose-toggle" title="Whether items in 'Worn / carried loose' count toward this trip's weight limit">
+        <input type="checkbox" data-loose-toggle ${s.countLoose ? 'checked' : ''}><span class="switch"></span>
+        <span>🧍 Worn / carried-loose items ${s.countLoose ? '<b>count</b>' : '<b>don\'t count</b>'} toward the weight limit${s.looseKg ? ` (${W(s.looseKg)})` : ''}</span></label>
     </div>
     <div class="cat-wrap">${categoryBar(s.byCat, s.totalKg)}</div>
     ${warnings.length ? `<div class="warnings">${warnings.map(w => `<span>⚠️ ${esc(w)}</span>`).join('')}</div>` : ''}

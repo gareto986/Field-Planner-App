@@ -524,3 +524,6 @@ code.copy { user-select: all; display: inline-block; margin-top: .2rem; }
 .loose-toggle input:checked + .switch::after { transform: translateX(14px); }
 .loose-toggle input:focus-visible + .switch { box-shadow: 0 0 0 3px color-mix(in srgb, var(--teal) 40%, transparent); }
 .g-sub br + * { display: inline; }
+
+.loose-row { grid-column: 1 / -1; margin: -.3rem 0 -.2rem; }
+.loose-row .loose-toggle { margin: 0; font-size: .85rem; font-weight: 700; }

@@ -2,7 +2,7 @@
 // Each entry: [emoji, 'search keywords']. Keywords also drive automatic icon
 // suggestions from an item's name. Only emoji up to Unicode 15 are used so they
 // render on Windows 10/11, macOS and phones.
-import { esc } from './utils.js?v=202611030056';
+import { esc } from './utils.js?v=202611030059';
 
 export const EMOJI_GROUPS = {
   'Bags & packs': [
